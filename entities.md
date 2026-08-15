@@ -37,6 +37,55 @@
 - **Submission immutability** — new row per attempt; never overwrite (audit trail).
 - **Soft deletes** on teacher-created content (`deleted_at`); hard retention on submissions.
 
+### Practicals & assessments: PostgreSQL or MongoDB?
+
+**Short answer:** Keep **`practicals` and `assessments` in PostgreSQL**. Put **variable subject-specific fields** in a **`metadata JSONB`** column — not a separate MongoDB collection for the whole entity.
+
+| Concern | Why PostgreSQL still wins for the entity |
+|---------|------------------------------------------|
+| Many relationships | `submissions`, `activity_assignments`, `evaluations`, `notes`, `attachments` all FK to practical/assessment ID |
+| Multi-user queries | "All submissions for Batch SE-A, DSA practical #3, due this week" — joins across users, batches, marks |
+| ACID | Assign practical + notify 60 students = one transaction |
+| RBAC / tenancy | `institution_id`, `created_by`, publish flags — filtered on every API call |
+| Assessments + test cases | `test_cases` table FK to `assessments` — relational by nature |
+
+| Concern | Solution (not full MongoDB migration) |
+|---------|--------------------------------------|
+| Subject-wise metadata differs | **`metadata JSONB`** on `practicals` / `assessments` |
+| Long Markdown body | `description TEXT` in PostgreSQL (fine up to ~1 MB); huge bodies → optional MongoDB `activity_content` keyed by UUID |
+| DBMS schema files, ML datasets | **`activity_attachments`** + S3 — not embedded in document DB |
+
+**What goes where (per practical):**
+
+```
+PostgreSQL (fixed columns — same for all subjects)
+  id, subject_id, environment_id, title, max_marks, due_date, language, …
+
+PostgreSQL (metadata JSONB — varies by subject)
+  DSA:    { "sample_io": [...], "constraints": "O(n log n)" }
+  DBMS:   { "schema_version": "v2", "preseed_script": "s3://…", "allowed_statements": ["SELECT","INSERT"] }
+  ML:     { "dataset_ids": ["uuid"], "expected_artifacts": ["confusion_matrix.png"], "notebook_template": "s3://…" }
+  OS:     { "sample_input": { "processes": 4, "burst_times": [6,8,7,3] }, "output_hints": "Gantt chart required" }
+
+MongoDB (only if needed later)
+  activity_content: { activity_id, rich_body, revision_history }  — optional for CMS-style editing
+
+S3/MinIO
+  PDF manuals, CSV datasets, SQL dumps, starter notebooks
+```
+
+**When MongoDB alone would hurt:**
+
+```
+Teacher dashboard: submissions JOIN users JOIN batches WHERE practical_id = ?
+  → Cross-database join or application-level merge = slow and fragile
+
+Student: "Is this practical still open for my batch?"
+  → Needs activity_assignments + practical in one query
+```
+
+See [Section 3.13](#313-practicals) — `metadata JSONB` added to schema below.
+
 ---
 
 ## 2. Entity map (all entities)
@@ -320,31 +369,42 @@ Docker execution environment definitions — the **reference environments** per 
 ```sql
 CREATE TABLE execution_environments (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name              VARCHAR(100) NOT NULL,      -- "C++ GCC 13", "Python 3.11 ML"
-  slug              VARCHAR(50)  NOT NULL UNIQUE, -- cpp-gcc, python-ml, postgres, jupyter-dl
-  docker_image      VARCHAR(255) NOT NULL,        -- vpl-cpp-runner:latest
+  name              VARCHAR(100) NOT NULL,      -- "Jupyter ML Stack"
+  slug              VARCHAR(50)  NOT NULL UNIQUE, -- one slug = one Docker image (bundles all components)
+  docker_image      VARCHAR(255) NOT NULL,        -- vpl-jupyter-ml:1.0
   language          VARCHAR(30)  NOT NULL,        -- cpp | python | sql | java
-  subjects          TEXT[] NOT NULL DEFAULT '{}', -- {DSA,OOP,OS} or {DBMS}
+  subjects          TEXT[] NOT NULL DEFAULT '{}', -- {ML} or {DSA,OOP,OS}
+  description       TEXT,
+  components        JSONB NOT NULL DEFAULT '{}',  -- runtime, tools, libraries inside image (see execution.md)
+  phase             SMALLINT NOT NULL DEFAULT 1,  -- 1 = Phase 1 delivery
+  image_size_mb     INT,
   default_time_limit_sec   INT NOT NULL DEFAULT 30,
   default_memory_limit_mb  INT NOT NULL DEFAULT 512,
   default_cpu_limit        DECIMAL(3,1) DEFAULT 1.0,
   supports_notebook BOOLEAN NOT NULL DEFAULT FALSE,
   supports_multi_file BOOLEAN NOT NULL DEFAULT FALSE,
   network_disabled  BOOLEAN NOT NULL DEFAULT TRUE,
-  setup_script      TEXT,                         -- container init script path
-  run_command_template TEXT,                      -- e.g. "g++ {files} -o main && ./main"
+  setup_script      TEXT,
+  run_command_template TEXT,
   env_vars          JSONB NOT NULL DEFAULT '{}',
   is_active         BOOLEAN NOT NULL DEFAULT TRUE,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
--- Seed examples:
--- slug: cpp-gcc      | docker: vpl-cpp-runner     | subjects: {DSA,OOP,OS}
--- slug: postgres     | docker: vpl-postgres-runner| subjects: {DBMS}
--- slug: python-ml    | docker: vpl-python-runner  | subjects: {ML,DS}
--- slug: jupyter-dl   | docker: vpl-jupyter-runner | subjects: {DL,ML,DS}
 ```
+
+> **Slug vs components:** One `slug` = one pre-built Docker image. ML needs Jupyter + Python + scikit-learn — all are **components inside** `jupyter-ml`, not separate slugs. See [execution.md](./execution.md).
+
+**Seed slugs (Phase 1 → Phase 2):**
+
+| slug | docker_image | subjects | phase |
+|------|--------------|----------|-------|
+| `cpp-gcc` | `vpl-cpp-runner:1.0` | DSA (C++), OOP, OS | 1 |
+| `python-dsa` | `vpl-python-dsa:1.0` | DSA (Python) | 1 |
+| `postgres-dbms` | `vpl-postgres-runner:1.0` | DBMS | 1 |
+| `jupyter-ml` | `vpl-jupyter-ml:1.0` | ML | 1 |
+| `jupyter-ds` | `vpl-jupyter-ds:1.0` | DS | 2 |
+| `jupyter-dl` | `vpl-jupyter-dl:1.0` | DL | 2 |
 
 Add FK on subjects after seed:
 
@@ -375,6 +435,7 @@ CREATE TABLE practicals (
   max_marks         DECIMAL(5,2) NOT NULL DEFAULT 10,
   language          VARCHAR(30) NOT NULL,       -- override env default if needed
   starter_code      TEXT,
+  metadata          JSONB NOT NULL DEFAULT '{}',  -- subject-specific variable fields (see design note above)
   time_limit_sec    INT,                        -- NULL = use env default
   memory_limit_mb   INT,
   max_code_size_kb  INT DEFAULT 512,
@@ -391,6 +452,23 @@ CREATE TABLE practicals (
 
 CREATE INDEX idx_practicals_subject ON practicals(subject_id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_practicals_created_by ON practicals(created_by);
+CREATE INDEX idx_practicals_metadata ON practicals USING GIN (metadata);
+```
+
+**Example `metadata` by subject:**
+
+```json
+// DSA
+{ "sample_io": [{ "input": "5\\n1 2 3 4 5", "output": "15" }], "complexity_note": "O(n)" }
+
+// DBMS
+{ "preseed_storage_key": "practicals/uuid/schema.sql", "show_schema_browser": true }
+
+// ML
+{ "dataset_attachment_ids": ["uuid"], "submission_mode": "notebook", "required_outputs": ["metrics", "plot"] }
+
+// OS
+{ "default_input": { "algorithm": "FCFS", "burst_times": [6, 8, 7, 3] } }
 ```
 
 ---
@@ -413,6 +491,7 @@ CREATE TABLE assessments (
   max_marks         DECIMAL(5,2) NOT NULL DEFAULT 10,
   language          VARCHAR(30) NOT NULL,
   starter_code      TEXT,
+  metadata          JSONB NOT NULL DEFAULT '{}',  -- subject-specific fields (assessment extras beyond test_cases)
   time_limit_sec    INT NOT NULL DEFAULT 5,       -- per test case
   memory_limit_mb   INT NOT NULL DEFAULT 256,
   max_attempts      INT DEFAULT 1,              -- exam attempts allowed
@@ -426,6 +505,7 @@ CREATE TABLE assessments (
 );
 
 CREATE INDEX idx_assessments_subject ON assessments(subject_id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_assessments_metadata ON assessments USING GIN (metadata);
 ```
 
 ---
@@ -852,6 +932,25 @@ db.execution_jobs.createIndex({ created_at: 1 }, { expireAfterSeconds: 7776000 }
 }
 ```
 
+### 4.3 `activity_content` (optional — Phase 2)
+
+Only if practical descriptions become very large or need revision history / collaborative editing. **Not required for Phase 1.**
+
+```javascript
+// Collection: activity_content
+{
+  _id: ObjectId,
+  activity_id: "uuid",              // matches PostgreSQL practicals.id or assessments.id
+  activity_type: "practical" | "assessment",
+  rich_description: "...",          // extended Markdown / block editor JSON
+  revision: 3,
+  updated_by: "uuid",
+  updated_at: ISODate
+}
+```
+
+PostgreSQL row remains the **authority** for id, subject, marks, publish state. MongoDB holds optional **content overflow** only.
+
 ---
 
 ## 5. Redis keys & queues
@@ -987,12 +1086,16 @@ CREATE POLICY institution_isolation ON submissions
 
 ### Execution environment slugs (seed data)
 
-| slug | docker_image | language | subjects |
-|------|--------------|----------|----------|
-| `cpp-gcc` | `vpl-cpp-runner:latest` | cpp | DSA, OOP, OS |
-| `postgres` | `vpl-postgres-runner:latest` | sql | DBMS |
-| `python-ml` | `vpl-python-runner:latest` | python | ML, DS |
-| `jupyter-dl` | `vpl-jupyter-runner:latest` | python | DL, ML, DS |
+> Full component lists per slug: [execution.md](./execution.md)
+
+| slug | docker_image | language | subjects | phase |
+|------|--------------|----------|----------|-------|
+| `cpp-gcc` | `vpl-cpp-runner:1.0` | cpp | DSA, OOP, OS | 1 |
+| `python-dsa` | `vpl-python-dsa:1.0` | python | DSA | 1 |
+| `postgres-dbms` | `vpl-postgres-runner:1.0` | sql | DBMS | 1 |
+| `jupyter-ml` | `vpl-jupyter-ml:1.0` | python | ML | 1 |
+| `jupyter-ds` | `vpl-jupyter-ds:1.0` | python | DS | 2 |
+| `jupyter-dl` | `vpl-jupyter-dl:1.0` | python | DL | 2 |
 
 ---
 

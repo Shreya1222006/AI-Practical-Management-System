@@ -15,6 +15,7 @@ A web-based platform for managing computer engineering practicals. Teachers uplo
 - [Practical vs Assessment](#practical-vs-assessment)
 - [Evaluation Guide](./evaluation.md)
 - [Entity & Database Schema](./entities.md)
+- [Execution Environments](./execution.md)
 - [System Architecture](#system-architecture)
 - [Core Features (Base Model)](#core-features-base-model)
 - [Key Workflows](#key-workflows)
@@ -400,12 +401,14 @@ Student clicks RUN/SUBMIT
 
 ### Docker images to maintain
 
-| Image | Purpose |
-|-------|---------|
-| `vpl-cpp-runner` | GCC/G++, test harness for stdin/stdout |
-| `vpl-postgres-runner` | PostgreSQL + SQL evaluation script |
-| `vpl-python-runner` | Python 3.11 + common ML/DS libraries |
-| `vpl-jupyter-runner` | Jupyter kernel for notebook practicals |
+> Component lists, versions, and phase plan: [execution.md](./execution.md)
+
+| Image | Slug | Phase 1 components |
+|-------|------|-------------------|
+| `vpl-cpp-runner:1.0` | `cpp-gcc` | GCC/G++ 13, make, pthread |
+| `vpl-python-dsa:1.0` | `python-dsa` | Python 3.11 (stdlib) |
+| `vpl-postgres-runner:1.0` | `postgres-dbms` | PostgreSQL 16, psql, SQL runner |
+| `vpl-jupyter-ml:1.0` | `jupyter-ml` | Python 3.11, JupyterLab, NumPy, Pandas, scikit-learn, Matplotlib, Seaborn |
 
 ---
 
