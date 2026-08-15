@@ -358,6 +358,8 @@ Student clicks RUN/SUBMIT
 | **Redis** | Queues, rate limits, JWT blacklist, cache |
 | **S3 / MinIO** | Datasets, PDFs, notebooks, plots |
 
+**Schema update (2026-08-15):** Assessment auto-grade details were moved out of the mixed `submissions` table into a dedicated `assessment_submissions` table to separate concerns and improve query performance. Migration script: `migrations/20260815_separate_assessment_submissions.sql`. See [entities.md](./entities.md#L619) for details.
+
 ---
 
 ## Security & Resource Limits

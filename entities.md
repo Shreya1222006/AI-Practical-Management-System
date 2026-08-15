@@ -603,17 +603,13 @@ CREATE INDEX idx_attachments_assessment ON activity_attachments(assessment_id);
 
 ### 3.18 `submissions`
 
-Core accountability table — one row per Run (optional) or Submit.
+Core accountability table — shared fields for both `run` and `submit` events. Assessment-specific auto-grade details are moved to a separate table `assessment_submissions` (see below) to keep concerns separated and queries simple.
 
 ```sql
 CREATE TYPE submission_type AS ENUM ('run', 'submit');
 CREATE TYPE practical_status AS ENUM (
   'submitted', 'executed', 'evaluated',
   'compilation_error', 'runtime_error', 'time_limit_exceeded'
-);
-CREATE TYPE assessment_status AS ENUM (
-  'accepted', 'wrong_answer', 'compilation_error',
-  'runtime_error', 'time_limit_exceeded', 'partial'
 );
 
 CREATE TABLE submissions (
@@ -631,21 +627,15 @@ CREATE TABLE submissions (
   code              TEXT NOT NULL,
   language          VARCHAR(30) NOT NULL,
 
-  -- Execution output (practical + assessment)
+  -- Execution output (summary stored here; full logs in MongoDB)
   stdout            TEXT,
   stderr            TEXT,
   exit_code         INT,
   exec_time_ms      INT,
   memory_used_kb    INT,
 
-  -- Practical grading
+  -- Practical grading (manual)
   practical_status  practical_status,
-
-  -- Assessment grading
-  assessment_status assessment_status,
-  test_results      JSONB,                      -- [{test_case_id, passed, input, expected, actual, time_ms}]
-  auto_score        DECIMAL(7,2),
-  max_score         DECIMAL(7,2),
 
   -- Final marks (filled after evaluation)
   manual_score      DECIMAL(7,2),
@@ -662,11 +652,35 @@ CREATE TABLE submissions (
   )
 );
 
+-- Uniqueness: one attempt_number per student + activity.
+CREATE UNIQUE INDEX uq_submission_attempt ON submissions(
+  student_id, activity_type, COALESCE(practical_id::text, assessment_id::text), attempt_number
+);
+
 CREATE INDEX idx_submissions_student ON submissions(student_id, submitted_at DESC);
 CREATE INDEX idx_submissions_practical ON submissions(practical_id, student_id);
 CREATE INDEX idx_submissions_assessment ON submissions(assessment_id, student_id);
 CREATE INDEX idx_submissions_assignment ON submissions(assignment_id);
 CREATE INDEX idx_submissions_institution_date ON submissions(institution_id, submitted_at DESC);
+```
+
+### 3.18.1 `assessment_submissions`
+
+Assessment-specific auto-grading results and per-test-case details are stored here. This keeps `submissions` lean and avoids nullable/ambiguous columns.
+
+```sql
+CREATE TABLE assessment_submissions (
+  submission_id  UUID PRIMARY KEY REFERENCES submissions(id) ON DELETE CASCADE,
+  auto_score     DECIMAL(7,2),
+  test_results   JSONB NOT NULL,            -- array/object per-case results
+  status         VARCHAR(32) NOT NULL,     -- accepted|wrong_answer|compilation_error|runtime_error|time_limit_exceeded|partial
+  run_metadata   JSONB DEFAULT '{}'::jsonb, -- per-case runtimes/memory if needed
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_assess_subm_submission ON assessment_submissions(submission_id);
+CREATE INDEX idx_assess_subm_status ON assessment_submissions((status));
+CREATE INDEX idx_assess_subm_test_results ON assessment_submissions USING GIN (test_results);
 ```
 
 **`test_results` JSONB example (assessment):**
@@ -691,6 +705,32 @@ CREATE INDEX idx_submissions_institution_date ON submissions(institution_id, sub
   }
 ]
 ```
+
+### Migration notes (recommended)
+
+1. Create `assessment_submissions` table.
+2. Backfill assessment rows from `submissions` into `assessment_submissions`:
+
+```sql
+BEGIN;
+
+INSERT INTO assessment_submissions (submission_id, auto_score, test_results, status, run_metadata, created_at)
+SELECT id, auto_score, COALESCE(test_results, '[]'::jsonb),
+       COALESCE(assessment_status::text, 'partial')::varchar, '{}'::jsonb, submitted_at
+FROM submissions
+WHERE assessment_id IS NOT NULL AND (test_results IS NOT NULL OR auto_score IS NOT NULL OR assessment_status IS NOT NULL);
+
+-- After verification, remove deprecated columns from `submissions` (do this manually):
+-- ALTER TABLE submissions DROP COLUMN assessment_status;
+-- ALTER TABLE submissions DROP COLUMN test_results;
+-- ALTER TABLE submissions DROP COLUMN auto_score;
+-- ALTER TABLE submissions DROP COLUMN max_score;
+
+COMMIT;
+```
+
+Keep the deprecated columns for a short verification window before dropping them.
+
 
 ---
 

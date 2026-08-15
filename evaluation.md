@@ -383,10 +383,13 @@ No `test_cases` table linked to practicals.
 |---------------|---------|
 | `assessments` | `activity_type = 'assessment'` |
 | `test_cases` | `assessment_id`, input, expected_output, is_sample, is_hidden, points |
-| `submissions.test_results` | JSONB — per-case pass/fail, actual vs expected |
-| `submissions.auto_score` | Computed from test cases |
+| `assessment_submissions` | `submission_id` FK → `submissions.id`, `test_results` JSONB, `auto_score`, `status` |
+| `submissions.test_results` | (deprecated) Previously stored assessment results; moved to `assessment_submissions` |
+| `submissions.auto_score` | (deprecated) Previously stored auto-score; moved to `assessment_submissions` |
 | `submissions.status` | `Accepted`, `Wrong Answer`, TLE, RE, CE |
 | `evaluations.manual_score` | Optional teacher override |
+
+Note: As of 2026-08-15 the project schema separates assessment auto-grading details into `assessment_submissions` (see `entities.md`). A migration script exists at `migrations/20260815_separate_assessment_submissions.sql`.
 
 ### 5.4 Shared submission fields
 
