@@ -1,0 +1,129 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: practical_db
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  mongo:
+    image: mongo:6
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongodata:/data/db
+
+  redis:
+    image: redis:7
+    ports:
+      - '6379:6379'
+    volumes:
+      - redisdata:/data
+
+  minio:
+    image: minio/minio
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - '9000:9000'
+    volumes:
+      - minio_data:/data
+
+  api-gateway:
+    build: ./services/api-gateway
+    env_file: .env
+    ports:
+      - "4000:3000"
+    depends_on:
+      - postgres
+      - mongo
+      - redis
+      - minio
+    restart: unless-stopped
+
+  auth-service:
+    build: ./services/auth-service
+    env_file: .env
+    ports:
+      - "4010:4010"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  user-service:
+    build: ./services/user-service
+    env_file: .env
+    ports:
+      - "4060:4060"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  practicals-service:
+    build: ./services/practicals-service
+    env_file: .env
+    ports:
+      - "4070:4070"
+    depends_on:
+      - postgres
+      - file-service
+    restart: unless-stopped
+
+  assessments-service:
+    build: ./services/assessments-service
+    env_file: .env
+    ports:
+      - "4050:4003"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  submission-service:
+    build: ./services/submission-service
+    env_file: .env
+    ports:
+      - "4020:4004"
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  execution-runner:
+    build: ./services/execution-runner
+    env_file: .env
+    depends_on:
+      - redis
+      - mongo
+      - minio
+    restart: unless-stopped
+
+  assessment-grader:
+    build: ./services/assessment-grader
+    env_file: .env
+    depends_on:
+      - redis
+      - mongo
+      - submission-service
+    restart: unless-stopped
+
+  file-service:
+    build: ./services/file-service
+    env_file: .env
+    ports:
+      - "4040:4040"
+    depends_on:
+      - minio
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  minio_data:
+  mongodata:
+  redisdata:
