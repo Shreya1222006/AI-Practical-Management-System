@@ -5,9 +5,12 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc -p .",
-    "start": "node dist/index.js"
+    "start": "node dist/src/index.js",
+    "test": "tsc -p . && node dist/tests/execution.test.js"
   },
   "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
     "ioredis": "^5.3.2",
     "mongodb": "^5.9.0",
     "axios": "^1.5.0",
@@ -15,18 +18,11 @@
     "dotenv": "^16.3.1"
   },
   "devDependencies": {
-    "ts-node-dev": "^2.0.0",
-    "typescript": "^5.5.6",
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
     "@types/node": "^20.5.1",
-    "@types/uuid": "^9.0.2"
-  }
-}
-{
-  "name": "execution-runner",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "start": "node dist/index.js",
-    "dev": "ts-node-dev --respawn src/index.ts"
+    "@types/uuid": "^9.0.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.5.6"
   }
 }

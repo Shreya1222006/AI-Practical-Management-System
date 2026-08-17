@@ -1,6 +1,7 @@
 {
   "name": "assessment-grader",
   "version": "0.1.0",
+  "private": true,
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
@@ -19,15 +20,7 @@
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.5.6",
     "@types/node": "^20.5.1",
-    "@types/uuid": "^9.0.2"
-  }
-}
-{
-  "name": "assessment-grader",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "start": "node dist/index.js",
-    "dev": "ts-node-dev --respawn src/index.ts"
+    "@types/uuid": "^9.0.2",
+    "@types/pg": "^8.10.0"
   }
 }

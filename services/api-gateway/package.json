@@ -1,6 +1,7 @@
 {
   "name": "api-gateway",
   "version": "0.1.0",
+  "private": true,
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
@@ -22,14 +23,5 @@
     "@types/node": "^20.5.1",
     "@types/cors": "^2.8.12",
     "@types/uuid": "^9.0.2"
-  }
-}
-{
-  "name": "api-gateway",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "start": "node dist/index.js",
-    "dev": "ts-node-dev --respawn src/index.ts"
   }
 }

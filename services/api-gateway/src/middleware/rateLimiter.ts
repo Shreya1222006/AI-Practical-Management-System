@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import IORedis from 'ioredis';
-import { getConfig } from '../../libs/shared/config';
+import { getConfig } from '../../../../libs/shared/config';
 
 const config = getConfig();
 const REDIS_URL = process.env.REDIS_URL || (config as any).REDIS_URL;

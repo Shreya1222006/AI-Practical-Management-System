@@ -53,7 +53,7 @@ export async function presignResource(req: Request, res: Response) {
   const { id } = req.params;
   const { filename, contentType } = req.body;
   if (!filename || !contentType) return res.status(400).json({ error: 'filename and contentType required' });
-  const fileService = config.FILE_SERVICE_URL || process.env.FILE_SERVICE_URL;
+  const fileService = process.env.FILE_SERVICE_URL || config.fileServiceUrl;
   if (!fileService) return res.status(500).json({ error: 'file service not configured' });
   try {
     const resp = await axios.post(`${fileService.replace(/\/$/, '')}/presign`, { filename, contentType });

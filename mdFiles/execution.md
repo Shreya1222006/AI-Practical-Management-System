@@ -209,15 +209,15 @@ Contains: Python + JupyterLab + TensorFlow + PyTorch + NumPy + Pandas + Matplotl
 
 ### Subject → environment mapping (summary)
 
-| Subject | Slug(s) | Shared with |
-|---------|---------|-------------|
-| DSA | `python-dsa`, `cpp-gcc` | — |
-| OOP | `cpp-gcc` | DSA, OS |
-| OS | `cpp-gcc` | DSA, OOP |
-| DBMS | `postgres-dbms` | — |
-| ML | `jupyter-ml` | — |
-| DL | `jupyter-dl` | — |
-| DS | `jupyter-ds` | — |
+| Subject | Primary Slug | Docker Image | Covers / Shared with |
+|---------|--------------|--------------|----------------------|
+| **DSA** | `cpp-gcc` / `python-dl` | `vpl-cpp-runner:1.0` / `vpl-python-dl:1.0` | C++ groups & Python groups |
+| **OOP** | `cpp-gcc` | `vpl-cpp-runner:1.0` | DSA (C++), OS |
+| **OS** | `cpp-gcc` | `vpl-cpp-runner:1.0` | DSA (C++), OOP |
+| **DBMS** | `postgres-dbms` | `vpl-postgres-runner:1.0` | PostgreSQL DDL/DML & SQL queries |
+| **ML** | `python-dl` | `vpl-python-dl:1.0` | Python + Scikit-Learn + Matplotlib + Seaborn |
+| **DL** | `python-dl` | `vpl-python-dl:1.0` | PyTorch + Torchvision + Deep Learning stack |
+| **DS** | `python-dl` | `vpl-python-dl:1.0` | Pandas + NumPy + Matplotlib + Seaborn |
 
 ---
 
@@ -417,63 +417,61 @@ python3 /workspace/main.py
 ---
 
 ## 5. Phase 1 delivery plan
-
-What we **build and ship first**:
-
-| Priority | Slug | Subjects covered | Image size (est.) |
-|----------|------|------------------|-------------------|
-| **P0** | `cpp-gcc` | DSA (C++), OOP, OS | ~300 MB |
-| **P0** | `python-dsa` | DSA (Python) | ~150 MB |
-| **P0** | `postgres-dbms` | DBMS | ~400 MB |
-| **P1** | `jupyter-ml` | ML | ~1.2 GB |
-| **P2** | `jupyter-ds` | DS | ~900 MB |
-| **P2** | `jupyter-dl` | DL | ~2.5 GB |
-
+ 
+What we **build and ship first** (Consolidated into 3 core environments):
+ 
+| Priority | Slug | Docker Image | Subjects covered | Image size (est.) |
+|----------|------|--------------|------------------|-------------------|
+| **P0** | `cpp-gcc` | `vpl-cpp-runner:1.0` | DSA (C++), OOP, OS | ~300 MB |
+| **P0** | `python-dl` | `vpl-python-dl:1.0` | DSA (Python), ML, DL, DS | ~1.8 GB |
+| **P0** | `postgres-dbms` | `vpl-postgres-runner:1.0` | DBMS | ~400 MB |
+ 
 ### Phase 1 component checklist
-
+ 
 ```
-cpp-gcc        →  g++, gcc, make, pthread, bash
-python-dsa     →  python3 (stdlib)
-postgres-dbms  →  postgresql-16, psql, python3, psycopg2
-jupyter-ml     →  python3, jupyterlab, numpy, pandas, scikit-learn,
-                   matplotlib, seaborn, scipy
+cpp-gcc        →  g++, gcc, make, pthread, bash, coreutils
+python-dl      →  python3 (3.11), torch, torchvision, numpy, pandas, scikit-learn,
+                   matplotlib, seaborn, scipy, nbconvert, ipython
+postgres-dbms  →  postgresql-16, psql, python3, psycopg2, sql-runner
 ```
-
+ 
 ---
-
+ 
 ## 6. Schema enhancement
-
+ 
 ### Updated `execution_environments` (add `components` JSONB)
-
+ 
 ```sql
 ALTER TABLE execution_environments
   ADD COLUMN components JSONB NOT NULL DEFAULT '{}',
   ADD COLUMN phase SMALLINT NOT NULL DEFAULT 1,
   ADD COLUMN image_size_mb INT,
   ADD COLUMN description TEXT;
-
--- Example seed: jupyter-ml
+ 
+-- Example seed: python-dl
 INSERT INTO execution_environments (
   name, slug, docker_image, language, subjects,
   supports_notebook, default_time_limit_sec, default_memory_limit_mb,
   phase, components
 ) VALUES (
-  'Jupyter ML Stack',
-  'jupyter-ml',
-  'vpl-jupyter-ml:1.0',
+  'Python, ML & Deep Learning Stack',
+  'python-dl',
+  'vpl-python-dl:1.0',
   'python',
-  ARRAY['ML'],
+  ARRAY['DSA', 'ML', 'DL', 'DS'],
   TRUE,
-  600,
+  60,
   2048,
   1,
   '{
     "runtime": {"python": "3.11"},
-    "tools": ["jupyterlab", "ipython"],
+    "tools": ["python3", "pip", "ipython", "nbconvert"],
     "libraries": [
+      {"name": "torch", "version": "2.2", "phase": 1},
+      {"name": "torchvision", "version": "0.17", "phase": 1},
+      {"name": "scikit-learn", "version": "1.4", "phase": 1},
       {"name": "numpy", "version": "1.26", "phase": 1},
       {"name": "pandas", "version": "2.2", "phase": 1},
-      {"name": "scikit-learn", "version": "1.4", "phase": 1},
       {"name": "matplotlib", "version": "3.8", "phase": 1},
       {"name": "seaborn", "version": "0.13", "phase": 1},
       {"name": "scipy", "version": "1.12", "phase": 1}
@@ -483,11 +481,11 @@ INSERT INTO execution_environments (
   }'::jsonb
 );
 ```
-
+ 
 ### Optional: `environment_components` table (admin UI / versioning)
-
+ 
 Use if you need queryable component lists across environments:
-
+ 
 ```sql
 CREATE TABLE environment_components (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -498,59 +496,47 @@ CREATE TABLE environment_components (
   phase           SMALLINT NOT NULL DEFAULT 1,
   is_required     BOOLEAN NOT NULL DEFAULT TRUE,
   notes           TEXT,
-
+ 
   UNIQUE (environment_id, component_type, name)
 );
 ```
-
+ 
 **Recommendation:** Start with **`components` JSONB** on `execution_environments`. Add `environment_components` table only when admin UI needs to filter/search by library.
-
+ 
 ---
-
+ 
 ## 7. Docker image structure
-
+ 
 ```
 docker/
 ├── cpp-runner/              → vpl-cpp-runner:1.0      (slug: cpp-gcc)
 │   ├── Dockerfile
 │   └── run.sh
-├── python-dsa/              → vpl-python-dsa:1.0      (slug: python-dsa)
+├── python-dl/               → vpl-python-dl:1.0       (slug: python-dl)
 │   ├── Dockerfile
+│   ├── requirements.txt     ← torch, torchvision, numpy, pandas, scikit-learn, matplotlib, …
 │   └── run.sh
-├── postgres-runner/         → vpl-postgres-runner:1.0 (slug: postgres-dbms)
-│   ├── Dockerfile
-│   ├── init-db.sh
-│   └── sql-runner.py
-├── jupyter-ml/              → vpl-jupyter-ml:1.0      (slug: jupyter-ml)
-│   ├── Dockerfile
-│   ├── requirements.txt     ← numpy, pandas, scikit-learn, …
-│   └── execute-notebook.sh
-├── jupyter-ds/              → vpl-jupyter-ds:1.0      (slug: jupyter-ds)
-│   └── ...
-└── jupyter-dl/              → vpl-jupyter-dl:1.0      (slug: jupyter-dl)
+└── postgres-runner/         → vpl-postgres-runner:1.0 (slug: postgres-dbms)
     ├── Dockerfile
-    ├── requirements.txt     ← tensorflow, torch, …
-    └── execute-notebook.sh
+    ├── init-db.sh
+    ├── sql-runner.py
+    └── run.sh
 ```
-
-### `jupyter-ml` Dockerfile sketch (shows bundled components)
-
+ 
+### `python-dl` Dockerfile sketch (shows bundled components)
+ 
 ```dockerfile
 FROM python:3.11-slim-bookworm
-
-RUN pip install --no-cache-dir \
-    jupyterlab==4.* \
-    numpy==1.26.* \
-    pandas==2.2.* \
-    scikit-learn==1.4.* \
-    matplotlib==3.8.* \
-    seaborn==0.13.* \
-    scipy==1.12.*
-
+ 
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+ 
 WORKDIR /workspace
-COPY execute-notebook.sh /usr/local/bin/
+COPY run.sh /usr/local/bin/
 USER 1000:1000
 ```
+ 
+One consolidated image → one slug → all Python, DSA, ML, and DL components available together.
 
 One image → one slug → all ML components available together.
 

@@ -64,15 +64,15 @@ The base model prioritizes **accountability** (every run and submission is logge
 
 Each subject maps to a **reference Docker environment** provisioned on demand when a student clicks **Run** or **Submit**.
 
-| Subject | Topics | Environment | Docker Image (example) | Notes |
-|---------|--------|-------------|------------------------|-------|
-| **DSA** | Arrays, trees, graphs, sorting | C++ (GCC/G++) | `gcc:latest` or custom image | Practical: code + output; Assessment: test-case grading |
-| **OOP** | Classes, inheritance, polymorphism | C++ (GCC/G++) | Same as DSA | Practical only — teacher reviews design + output |
-| **OS** | Processes, scheduling, memory | C++ (GCC/G++) | Same as DSA | Practical only — formatted table output |
-| **DBMS** | SQL queries, joins, indexing | PostgreSQL | `postgres:16` + SQL runner | Practical — SQL editor + result grid display |
-| **ML** | Regression, classification, clustering | Python + Jupyter | Custom `python:3.11` + scikit-learn | Practical — notebook + metrics + plots |
-| **DL** | Neural networks, CNNs, RNNs | Python + Jupyter | Custom image + TensorFlow/PyTorch | Practical — training logs + plots + model files |
-| **DS** | Pandas, NumPy, visualization | Python + Jupyter | `python:3.11` + pandas, matplotlib | Practical — stats tables + visualizations |
+| Subject | Topics | Environment Slug | Docker Image | Notes |
+|---------|--------|------------------|--------------|-------|
+| **DSA** | Arrays, trees, graphs, sorting | `cpp-gcc` / `python-dl` | `vpl-cpp-runner:1.0` / `vpl-python-dl:1.0` | C++ & Python practicals & test-case grading |
+| **OOP** | Classes, inheritance, polymorphism | `cpp-gcc` | `vpl-cpp-runner:1.0` | C++ classes, operator overloading & design review |
+| **OS** | Processes, scheduling, memory, threads | `cpp-gcc` | `vpl-cpp-runner:1.0` | POSIX threads & formatted output |
+| **DBMS** | SQL queries, joins, DDL/DML, indexing | `postgres-dbms` | `vpl-postgres-runner:1.0` | PostgreSQL 16 + SQL runner returning JSON result grids |
+| **ML** | Regression, classification, clustering | `python-dl` | `vpl-python-dl:1.0` | Python 3.11, Scikit-Learn, Pandas, Matplotlib, Seaborn |
+| **DL** | Neural networks, CNNs, PyTorch | `python-dl` | `vpl-python-dl:1.0` | PyTorch, Torchvision, model training logs & plots |
+| **DS** | Pandas, NumPy, statistical visualization | `python-dl` | `vpl-python-dl:1.0` | DataFrames, statistical summaries & plots |
 
 ### Environment provisioning rules
 
@@ -402,15 +402,14 @@ Student clicks RUN/SUBMIT
 - GitHub Actions pipeline: lint → test → build images → deploy.
 
 ### Docker images to maintain
-
-> Component lists, versions, and phase plan: [execution.md](./execution.md)
-
-| Image | Slug | Phase 1 components |
-|-------|------|-------------------|
-| `vpl-cpp-runner:1.0` | `cpp-gcc` | GCC/G++ 13, make, pthread |
-| `vpl-python-dsa:1.0` | `python-dsa` | Python 3.11 (stdlib) |
-| `vpl-postgres-runner:1.0` | `postgres-dbms` | PostgreSQL 16, psql, SQL runner |
-| `vpl-jupyter-ml:1.0` | `jupyter-ml` | Python 3.11, JupyterLab, NumPy, Pandas, scikit-learn, Matplotlib, Seaborn |
+ 
+> Component lists, versions, and phase plan: [execution.md](./mdFiles/execution.md)
+ 
+| Image | Slug | Subjects Covered | Key Components |
+|-------|------|------------------|----------------|
+| `vpl-cpp-runner:1.0` | `cpp-gcc` | DSA (C++), OOP, OS | GCC/G++ 13, make, pthread, bash, coreutils |
+| `vpl-python-dl:1.0` | `python-dl` | DSA (Python), ML, DL, DS | Python 3.11, PyTorch, Torchvision, Scikit-Learn, Pandas, NumPy, Matplotlib, Seaborn, SciPy, Jupyter |
+| `vpl-postgres-runner:1.0` | `postgres-dbms` | DBMS | PostgreSQL 16, psql, Python 3, psycopg2, SQL runner |
 
 ---
 

@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-import { getConfig } from '../../libs/shared/config';
+import { getConfig } from '../../../../libs/shared/config';
 
 let pool: Pool | null = null;
 

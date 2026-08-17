@@ -98,6 +98,11 @@ services:
   execution-runner:
     build: ./services/execution-runner
     env_file: .env
+    ports:
+      - "4030:4030"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./jobs:/app/jobs
     depends_on:
       - redis
       - mongo

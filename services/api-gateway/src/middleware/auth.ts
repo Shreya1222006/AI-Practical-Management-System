@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import axios from 'axios';
-import { getConfig } from '../../libs/shared/config';
+import { getConfig } from '../../../../libs/shared/config';
 
 const config = getConfig();
 

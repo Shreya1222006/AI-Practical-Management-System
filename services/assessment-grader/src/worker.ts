@@ -68,19 +68,3 @@ export async function handleExecutionCompleted(data: any, evType: string) {
     console.log('grading.completed', record.id);
   }
 }
-// Placeholder worker: subscribes to job-completed events and computes auto-scores
-
-import { setTimeout } from 'timers/promises';
-
-async function main() {
-  console.log('Assessment grader worker running (placeholder)');
-  while (true) {
-    // In production, subscribe to message bus and process events
-    await setTimeout(60000);
-  }
-}
-
-main().catch(err => {
-  console.error(err);
-  process.exit(1);
-});

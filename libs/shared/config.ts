@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
+dotenv.config();
 
 export type AppConfig = {
-  FILE_SERVICE_URL: string | undefined;
   nodeEnv: string;
   port: number;
   postgres: {
@@ -13,8 +13,14 @@ export type AppConfig = {
   };
   mongoUri: string;
   redisUrl: string;
-  submissionServiceUrl?: string;
-  assessmentsServiceUrl?: string;
+  apiGatewayUrl: string;
+  authServiceUrl: string;
+  userServiceUrl: string;
+  practicalsServiceUrl: string;
+  assessmentsServiceUrl: string;
+  submissionServiceUrl: string;
+  executionRunnerUrl: string;
+  fileServiceUrl: string;
   s3: {
     endpoint: string;
     accessKey: string;
@@ -31,17 +37,6 @@ export type AppConfig = {
   };
 };
 
-// Load local .env placed next to this file (optional)
-// import path from 'path';
-// import dotenv from 'dotenv';
-// try {
-//   const envPath = path.join(__dirname, '.env');
-//   / <reference types="node" />
-//   dotenv.config({ path: envPath });
-// } catch (e) {
-//   // ignore
-// }
-
 export function getConfig(): AppConfig {
   return {
     nodeEnv: process.env.NODE_ENV || 'development',
@@ -50,24 +45,30 @@ export function getConfig(): AppConfig {
       host: process.env.POSTGRES_HOST || 'localhost',
       port: Number(process.env.POSTGRES_PORT || 5432),
       user: process.env.POSTGRES_USER || 'postgres',
-      password: process.env.POSTGRES_PASSWORD || '',
+      password: process.env.POSTGRES_PASSWORD || 'postgres',
       database: process.env.POSTGRES_DB || 'practical_db',
     },
-    mongoUri: process.env.MONGO_URI || 'mongodb://localhost:27017/execution_logs',
+    mongoUri: process.env.MONGO_URI || 'mongodb://localhost:27017/vpl_logs',
     redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
-    submissionServiceUrl: process.env.SUBMISSION_SERVICE_URL || undefined,
-    assessmentsServiceUrl: process.env.ASSESSMENTS_SERVICE_URL || undefined,
+    apiGatewayUrl: process.env.API_GATEWAY_URL || 'http://localhost:4000',
+    authServiceUrl: process.env.AUTH_SERVICE_URL || 'http://localhost:4010',
+    userServiceUrl: process.env.USER_SERVICE_URL || 'http://localhost:4060',
+    practicalsServiceUrl: process.env.PRACTICALS_SERVICE_URL || 'http://localhost:4070',
+    assessmentsServiceUrl: process.env.ASSESSMENTS_SERVICE_URL || 'http://localhost:4050',
+    submissionServiceUrl: process.env.SUBMISSION_SERVICE_URL || 'http://localhost:4020',
+    executionRunnerUrl: process.env.EXECUTION_RUNNER_URL || 'http://localhost:4030',
+    fileServiceUrl: process.env.FILE_SERVICE_URL || 'http://localhost:4040',
     s3: {
       endpoint: process.env.S3_ENDPOINT || 'http://localhost:9000',
-      accessKey: process.env.S3_ACCESS_KEY || '',
-      secretKey: process.env.S3_SECRET_KEY || '',
+      accessKey: process.env.S3_ACCESS_KEY || 'minioadmin',
+      secretKey: process.env.S3_SECRET_KEY || 'minioadmin',
       bucket: process.env.S3_BUCKET || 'practical-files',
       region: process.env.S3_REGION || undefined,
-      forcePathStyle: (process.env.S3_FORCE_PATH_STYLE || 'false') === 'true',
+      forcePathStyle: (process.env.S3_FORCE_PATH_STYLE || 'true') === 'true',
     },
     jwt: {
-      accessSecret: process.env.JWT_ACCESS_TOKEN_SECRET || 'dev_secret',
-      refreshSecret: process.env.JWT_REFRESH_TOKEN_SECRET || 'dev_refresh',
+      accessSecret: process.env.JWT_ACCESS_TOKEN_SECRET || 'dev_access_secret_key_123',
+      refreshSecret: process.env.JWT_REFRESH_TOKEN_SECRET || 'dev_refresh_secret_key_123',
       accessExpiry: process.env.JWT_ACCESS_TOKEN_EXPIRES || '15m',
       refreshExpiry: process.env.JWT_REFRESH_TOKEN_EXPIRES || '30d',
     },
