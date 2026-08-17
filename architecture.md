@@ -205,7 +205,8 @@ sequenceDiagram
     File->>S3: Generate S3 Presigned PUT URL
     S3-->>File: Signed URL (expires in 15m)
     File-->>Prac: Return { url, file_key, id }
-    Prac-->>GW-->>Teacher: 200 OK with Presigned URL
+    Prac-->>GW: Return { url, file_key, id }
+    GW-->>Teacher: 200 OK with Presigned URL
     Teacher->>S3: Direct PUT binary upload (iris.csv) to Presigned URL
     S3-->>Teacher: 200 OK Upload Successful
 ```
@@ -279,13 +280,15 @@ sequenceDiagram
         GW->>Runner: GET /jobs/<jobId>
         Runner->>Mongo: Find job by _id
         Mongo-->>Runner: Return completed job doc
-        Runner-->>GW-->>Student: 200 OK with stdout & stderr
+        Runner-->>GW: Return completed job doc with output
+        GW-->>Student: 200 OK with stdout & stderr
     else Synchronous Execution (?sync=true)
         Runner->>Worker: Execute immediately in sandbox
         Worker->>Docker: Spawn container & wait
         Docker-->>Worker: Execution complete
         Worker-->>Runner: Return ExecutionResult
-        Runner-->>GW-->>Student: 200 OK { status: "completed", stdout, stderr, exit_code }
+        Runner-->>GW: Return ExecutionResult
+        GW-->>Student: 200 OK { status: "completed", stdout, stderr, exit_code }
     end
 ```
 
@@ -314,7 +317,8 @@ sequenceDiagram
     Sub->>PG: INSERT INTO submissions (student_id, practical_id, code, status: "submitted")
     PG-->>Sub: Return created submission (id: submissionId)
     Sub->>Redis: Publish to 'submissions.events' (submission.created)
-    Sub-->>GW-->>Student: 201 Created { submissionId }
+    Sub-->>GW: Return 201 Created { submissionId }
+    GW-->>Student: 201 Created { submissionId }
 
     Note over Redis,Runner: Background Container Execution for Submission
     Runner->>Redis: Message received on 'submissions.events'
@@ -330,7 +334,8 @@ sequenceDiagram
     GW->>Sub: GET /submissions?practicalId=<id>
     Sub->>PG: SELECT * FROM submissions WHERE practical_id = <id>
     PG-->>Sub: Return list of student submissions + code
-    Sub-->>GW-->>Teacher: 200 OK (Teacher reviews code and assigns marks)
+    Sub-->>GW: Return list of student submissions + code
+    GW-->>Teacher: 200 OK (Teacher reviews code and assigns marks)
 ```
 
 ---
@@ -358,7 +363,8 @@ sequenceDiagram
     Sub->>PG: INSERT INTO submissions (assessment_id, submitter_id, code)
     PG-->>Sub: Created submission (id: subId)
     Sub->>Redis: Publish 'submissions.events' (type: "submission.created", data: { id: subId, assessment_id })
-    Sub-->>GW-->>Student: 201 Created
+    Sub-->>GW: Return 201 Created { id: subId }
+    GW-->>Student: 201 Created { id: subId }
 
     Note over Redis,Runner: 1. Execution Runner Runs Code
     Runner->>Redis: Consumes 'submission.created'
@@ -400,7 +406,8 @@ sequenceDiagram
     File->>PG: INSERT INTO activity_attachments (file_key, file_name, content_type, activity_id)
     File->>S3: Request presigned PUT URL via S3 SDK
     S3-->>File: Signed PUT URL with 15-minute expiration
-    File-->>GW-->>Client: 200 OK { id, file_key, url }
+    File-->>GW: Return { id, file_key, url }
+    GW-->>Client: 200 OK { id, file_key, url }
     
     Note over Client,S3: Direct Binary Upload to Storage
     Client->>S3: Direct HTTP PUT <binary file data> to Presigned URL
