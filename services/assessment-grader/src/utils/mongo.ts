@@ -7,7 +7,6 @@ export async function connectMongo(uri: string) {
   client = new MongoClient(uri);
   await client.connect();
   db = client.db();
-  console.log('assessment-grader: connected to mongo');
 }
 
 export function getDb() {

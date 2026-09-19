@@ -39,14 +39,26 @@ CREATE TABLE IF NOT EXISTS role_permissions (
   PRIMARY KEY (role_id, permission_id)
 );
 
+-- batches
+CREATE TABLE IF NOT EXISTS batches (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+  name VARCHAR(100) NOT NULL,
+  code VARCHAR(50),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (institution_id, name)
+);
+
 -- users
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+  institution_id UUID REFERENCES institutions(id) ON DELETE CASCADE,
   email VARCHAR(255) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
-  first_name VARCHAR(100) NOT NULL,
-  last_name VARCHAR(100) NOT NULL,
+  name VARCHAR(255),
+  role VARCHAR(50) NOT NULL DEFAULT 'student',
+  first_name VARCHAR(100),
+  last_name VARCHAR(100),
   roll_number VARCHAR(50),
   avatar_url TEXT,
   phone VARCHAR(20),
