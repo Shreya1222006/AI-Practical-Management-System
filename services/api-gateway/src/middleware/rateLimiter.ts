@@ -5,6 +5,8 @@ import { getConfig } from '../../../../libs/shared/config';
 const config = getConfig();
 const REDIS_URL = process.env.REDIS_URL || (config as any).REDIS_URL;
 
+//it might be <userId, {count, reset NO}>and it going to be store into the map
+//but lets discuss what is the signifacne of the reset here 
 const map = new Map<string, { count: number; reset: number }>();
 
 export async function rateLimiter(req: Request, res: Response, next: NextFunction) {
@@ -24,7 +26,7 @@ export async function rateLimiter(req: Request, res: Response, next: NextFunctio
   if (now > entry.reset) {
     entry.count = 1; entry.reset = now + 60_000;
   } else { entry.count += 1; }
-  map.set(ip, entry);
+  map.set(ip, entry);1``
   if (entry.count > 100) return res.status(429).json({ error: 'rate limit' });
   return next();
 }

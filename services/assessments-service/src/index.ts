@@ -21,7 +21,10 @@ const port = Number(process.env.PORT) || Number(process.env.PORT_ASSESSMENTS_SER
 
 initDb(config)
   .then(() => {
-    app.listen(port, () => console.log(`[Assessments Service] Listening on port ${port}`));
+    app.listen(port, () => {
+      console.log(`[Assessments Service] Listening on port ${port}`);
+      console.log(`[Database] Connected to PostgreSQL database: ${config.postgres.database}`);
+    });
   })
   .catch((err) => {
     console.error('[Assessments Service] Failed to initialize DB:', err);
