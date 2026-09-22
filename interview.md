@@ -195,7 +195,216 @@ The platform uses consolidated images instead of creating one image for every li
 
 A practical stores an environment reference. The execution orchestrator uses that reference to select the Docker image and command template. This keeps subject configuration in data rather than hard-coding it into every request.
 
-## 10. Data Storage Decisions
+## 10. How the Container Runs Student Code
+
+The container is not rebuilt for every submission. The runner creates a job-specific workspace, writes the submitted source files into it, mounts that directory into a short-lived Docker container at `/workspace`, and starts the selected environment image.
+
+### 10.1 Create the workspace
+
+`executeInSandbox()` creates a separate directory for every job. It chooses an entrypoint file based on the environment and writes the submitted code and input:
+
+```ts
+const workspaceDir = path.join(workspaceBaseDir, jobId);
+fs.mkdirSync(workspaceDir, { recursive: true });
+
+let fileName = 'main.py';
+if (environment.slug === 'cpp-gcc') fileName = 'main.cpp';
+if (environment.slug === 'postgres-dbms') fileName = 'query.sql';
+
+fs.writeFileSync(path.join(workspaceDir, fileName), code, 'utf-8');
+
+if (stdin.trim()) {
+    fs.writeFileSync(path.join(workspaceDir, 'input.txt'), stdin, 'utf-8');
+}
+```
+
+For a multi-file submission, all files are placed in the same job directory:
+
+```text
+jobs/<job-id>/
+    main.cpp
+    helper.cpp
+    helper.h
+    input.txt
+```
+
+### 10.2 Create and start the container
+
+The runner builds Docker arguments and starts Docker as a child process:
+
+```ts
+const dockerArgs = [
+    'run',
+    '--rm',
+    '--name', `vpl-exec-${jobId}`,
+    '--network', 'none',
+    `--memory=${memoryMb}m`,
+    `--cpus=${cpuLimit}`,
+    '-v', `${dockerMount}:/workspace`,
+    environment.dockerImage
+];
+
+const childProc = spawn('docker', dockerArgs);
+```
+
+For example, a C++ execution is conceptually:
+
+```bash
+docker run --rm \
+    --name vpl-exec-123 \
+    --network none \
+    --memory=512m \
+    --cpus=1.0 \
+    -v /runner/jobs/123:/workspace \
+    vpl-cpp-runner:1.0
+```
+
+| Docker option | Purpose |
+|---|---|
+| `--rm` | Remove the container after it exits |
+| `--name` | Give the container a known name for timeout cleanup |
+| `--network none` | Prevent student code from making network connections |
+| `--memory` | Limit memory usage |
+| `--cpus` | Limit CPU usage |
+| `-v host:/workspace` | Mount the job files into the container |
+| Image name | Select the compiler or runtime environment |
+
+The image already contains the required tools. The source code is mounted at runtime, so the same image can execute many submissions without being rebuilt.
+
+### 10.3 Compile or run inside the image
+
+Each Docker image has an environment-specific `run.sh` entrypoint. The entrypoint runs inside the container with `/workspace` as its working directory.
+
+For C++, `docker/cpp-runner/run.sh` compiles and then runs the binary:
+
+```bash
+if [ -f "Makefile" ]; then
+        make
+elif [ -f "main.c" ]; then
+        gcc -std=c17 -O2 -pthread main.c -o /tmp/main_bin -lm
+else
+        g++ -std=c++17 -O2 -pthread "$SOURCE_FILE" -o /tmp/main_bin
+fi
+
+if [ -f "input.txt" ]; then
+        "$OUTPUT_BIN" < input.txt
+else
+        "$OUTPUT_BIN"
+fi
+```
+
+The C++ path is therefore:
+
+```text
+main.cpp + input.txt -> g++ -> /tmp/main_bin -> program execution
+```
+
+For Python, `docker/python-dl/run.sh` detects `train.py`, `main.py`, or a notebook and runs it with Python or Jupyter:
+
+```bash
+if [ -f "train.py" ]; then
+        TARGET="train.py"
+elif [ -f "main.py" ]; then
+        TARGET="main.py"
+fi
+
+if [ -f "input.txt" ]; then
+        python3 "$TARGET" < input.txt
+else
+        python3 "$TARGET"
+fi
+```
+
+For DBMS work, `docker/postgres-runner/run.sh` initializes a temporary PostgreSQL cluster, starts it inside the container, waits for readiness, runs `sql-runner.py`, and then stops PostgreSQL. This gives each SQL execution an isolated database process and temporary data directory.
+
+### 10.4 Capture stdout and stderr
+
+Node listens to Docker's two output streams:
+
+```ts
+let stdoutAccum = '';
+let stderrAccum = '';
+
+childProc.stdout.on('data', (chunk: Buffer) => {
+    stdoutAccum += chunk.toString();
+});
+
+childProc.stderr.on('data', (chunk: Buffer) => {
+    stderrAccum += chunk.toString();
+});
+```
+
+- `stdout` contains normal program output, such as printed values or SQL results.
+- `stderr` contains compiler errors, runtime errors, warnings, and runner errors.
+- The Docker process exit code indicates success or failure. `0` normally means success.
+- `Date.now() - startTime` gives the execution time in milliseconds.
+
+The runner also sends output chunks to `JobStore.appendLog()`, so logs can be stored while the job is running.
+
+### 10.5 Enforce the timeout
+
+The runner starts a watchdog timer. If the program runs too long, it kills the named container:
+
+```ts
+timeoutTimer = setTimeout(() => {
+    isTimedOut = true;
+    stderrAccum += `\nExecution timed out after ${timeLimitSec} seconds.\n`;
+
+    exec(`docker kill ${containerName}`, () => {
+        if (childProc && !childProc.killed) {
+            childProc.kill('SIGKILL');
+        }
+    });
+}, (timeLimitSec * 1000) + 1500);
+```
+
+A timed-out job receives the status `time_limit_exceeded`. A non-zero exit code produces the status `failed`.
+
+### 10.6 Build the result and publish it
+
+When Docker closes, the runner calculates the duration, determines the status, and scans the workspace for generated artifacts such as PNG plots, JSON results, notebooks, or model files:
+
+```ts
+childProc.on('close', (exitCode: number | null) => {
+    const executionTimeMs = Date.now() - startTime;
+    let status = 'completed';
+
+    if (isTimedOut) status = 'time_limit_exceeded';
+    else if (exitCode !== 0) status = 'failed';
+
+    resolve({
+        jobId,
+        status,
+        stdout: stdoutAccum,
+        stderr: stderrAccum,
+        exitCode,
+        executionTimeMs,
+        artifacts: collectArtifacts(workspaceDir)
+    });
+});
+```
+
+The result has this shape:
+
+```json
+{
+    "jobId": "123",
+    "status": "completed",
+    "stdout": "Hello\n",
+    "stderr": "",
+    "exitCode": 0,
+    "executionTimeMs": 340,
+    "artifacts": []
+}
+```
+
+`--rm` removes the Docker container after it exits. The current runner keeps the host job workspace until a separate retention or cleanup policy removes it; container cleanup and workspace cleanup are separate concerns.
+
+After that result is returned, `executeJob()` stores the final status, output, duration, exit code, and artifacts in MongoDB and publishes `execution.completed` or `execution.failed` on Redis. The assessment grader consumes that event to calculate scores, while the client retrieves the stored job by ID.
+
+This is the concrete implementation behind the statement: "The container compiles or runs the code and produces stdout, stderr, exit code, execution time, and optional artifacts."
+
+## 11. Data Storage Decisions
 
 ### PostgreSQL: source of truth
 
@@ -220,7 +429,7 @@ Redis supports the execution queue, pub/sub events, rate limits, and selected ca
 
 Datasets, PDFs, notebooks, plots, and larger artifacts are stored as objects. The database stores metadata and object keys, while presigned URLs allow clients to upload or download without routing large binary data through the application server.
 
-## 11. Security and Reliability
+## 12. Security and Reliability
 
 The execution boundary is the most security-sensitive part of the system.
 
@@ -236,7 +445,7 @@ The execution boundary is the most security-sensitive part of the system.
 
 In a production deployment, I would additionally run the execution layer on dedicated worker nodes, avoid exposing the Docker socket to general application services, use stronger container or VM isolation where appropriate, scan uploaded files, and add centralized metrics and alerting.
 
-## 12. Important Engineering Trade-offs
+## 13. Important Engineering Trade-offs
 
 ### Why microservices?
 
@@ -258,7 +467,7 @@ Overwriting a student’s previous submission loses the evidence needed for grad
 
 A regular practical can require subjective review and rich artifacts. An assessment needs deterministic test cases and automatic scoring. Combining both into one evaluation model would make one of the workflows unnecessarily rigid.
 
-## 13. A Strong Interview Walkthrough
+## 14. A Strong Interview Walkthrough
 
 Use this order in a project discussion:
 
@@ -271,7 +480,7 @@ Use this order in a project discussion:
 7. **Defend the storage choices:** PostgreSQL for truth, MongoDB for logs, Redis for coordination, object storage for files.
 8. **Acknowledge scope:** the platform foundation is the current focus; AI-assisted features are a later phase.
 
-## 14. Demo Script
+## 15. Demo Script
 
 A concise demo can follow this sequence:
 
@@ -285,7 +494,7 @@ A concise demo can follow this sequence:
 8. Show an assessment with sample tests and explain that hidden tests remain on the server.
 9. Point out the Docker runner and its resource restrictions.
 
-## 15. Likely Interview Questions and Answers
+## 16. Likely Interview Questions and Answers
 
 ### What was the hardest part?
 
@@ -315,7 +524,7 @@ The current release is the platform foundation rather than an AI feature release
 
 I would add stronger production-grade sandbox isolation, centralized metrics and tracing, worker autoscaling, retry and dead-letter policies, comprehensive integration tests, and the planned AI assistance layer with clear academic-integrity controls.
 
-## 16. Project Status and Honest Framing
+## 17. Project Status and Honest Framing
 
 The repository contains the service structure, database migrations, Docker runner environments, execution runner, assessment grader, shared libraries, architecture documentation, and execution tests. Some frontend and broader platform capabilities are represented in the planned architecture and roadmap rather than being presented as fully shipped functionality.
 
@@ -323,7 +532,7 @@ A good phrase to use in an interview is:
 
 > The project is being developed incrementally. The current foundation focuses on the backend service boundaries and secure execution pipeline, while the complete product architecture also defines authentication, practical management, submissions, assessments, file handling, and future AI capabilities.
 
-## 17. Closing Summary
+## 18. Closing Summary
 
 This project is more than an online code editor. It is an academic workflow platform with:
 
