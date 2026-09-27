@@ -1,11 +1,44 @@
 import { getPool } from '../utils/db';
 
-export async function createPractical(data: any) {
+export class PracticalReferenceError extends Error {}
+
+async function resolveInstitutionId(value: string) {
+  const pool = getPool();
+  const res = await pool.query('SELECT id FROM institutions WHERE id::text = $1 OR code = $1 LIMIT 1', [value]);
+  if (!res.rows[0]) throw new PracticalReferenceError(`Institution not found: ${value}`);
+  return res.rows[0].id;
+}
+
+async function resolveSubjectId(value: string, institutionId: string) {
   const pool = getPool();
   const res = await pool.query(
+    'SELECT id FROM subjects WHERE institution_id = $1 AND (id::text = $2 OR code = $2) LIMIT 1',
+    [institutionId, value]
+  );
+  if (!res.rows[0]) throw new PracticalReferenceError(`Subject not found: ${value}`);
+  return res.rows[0].id;
+}
+
+async function resolveEnvironmentId(value: string | undefined) {
+  if (!value) return null;
+  const pool = getPool();
+  const res = await pool.query(
+    'SELECT id FROM execution_environments WHERE id::text = $1 OR slug = $1 LIMIT 1',
+    [value]
+  );
+  if (!res.rows[0]) throw new PracticalReferenceError(`Environment not found: ${value}`);
+  return res.rows[0].id;
+}
+
+export async function createPractical(data: any) {
+  const pool = getPool();
+  const institutionId = await resolveInstitutionId(data.institution_id);
+  const subjectId = await resolveSubjectId(data.subject_id, institutionId);
+  const environmentId = await resolveEnvironmentId(data.environment_id || data.environment);
+  const res = await pool.query(
     `INSERT INTO practicals(id, institution_id, subject_id, environment_id, title, description, metadata, max_marks, due_date, language, created_by, created_at, updated_at)
-     VALUES(gen_random_uuid(), $1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW()) RETURNING *`,
-    [data.institution_id, data.subject_id, data.environment_id || null, data.title, data.description || null, data.metadata || {}, data.max_marks || null, data.due_date || null, data.language || null]
+     VALUES(gen_random_uuid(), $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),NOW()) RETURNING *`,
+    [institutionId, subjectId, environmentId, data.title, data.description || null, data.metadata || {}, data.max_marks || null, data.due_date || null, data.language || null, data.created_by || null]
   );
   return res.rows[0];
 }
