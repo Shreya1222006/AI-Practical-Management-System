@@ -6,6 +6,7 @@ export type Submission = {
   id: string;
   submitter_id: string;
   assessment_id?: string | null;
+  question_id?: string | null;
   practical_id?: string | null;
   metadata?: any;
   attachments?: any[];
@@ -20,9 +21,9 @@ export async function create(s: Partial<Submission>): Promise<Submission> {
   const id = s.id || uuidv4();
   const now = new Date().toISOString();
   const r = await pool.query(
-    `INSERT INTO submissions (id, submitter_id, assessment_id, practical_id, metadata, attachments, assessment_submission_id, status, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9) RETURNING *`,
-    [id, s.submitter_id, s.assessment_id || null, s.practical_id || null, s.metadata || null, s.attachments || null, s.assessment_submission_id || null, s.status || 'pending', now]
+    `INSERT INTO submissions (id, submitter_id, assessment_id, practical_id, question_id, metadata, attachments, assessment_submission_id, status, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10) RETURNING *`,
+    [id, s.submitter_id, s.assessment_id || null, s.practical_id || null, s.question_id || null, s.metadata || null, s.attachments || null, s.assessment_submission_id || null, s.status || 'pending', now]
   );
   return r.rows[0];
 }

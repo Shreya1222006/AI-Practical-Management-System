@@ -5,6 +5,24 @@ import { resolveEnvironment } from './environments';
 import { JobStore } from './utils/mongo';
 import { CodeExecutionRequest, ExecutionJobDoc, ExecutionResult } from './types';
 
+type ExecutionTestCase = { id: string; input: string; time_limit_sec?: number; memory_limit_mb?: number };
+
+async function loadExecutionCases(assessmentId: string, questionId: string) {
+  const serviceUrl = (process.env.ASSESSMENTS_SERVICE_URL || 'http://localhost:4050').replace(/\/$/, '');
+  const url = `${serviceUrl}/assessments/${assessmentId}/questions/${questionId}/execution-cases`;
+  const token = process.env.ASSESSMENT_INTERNAL_TOKEN;
+  if (!token) throw new Error('ASSESSMENT_INTERNAL_TOKEN is required for testcase retrieval');
+  const response = await fetch(url, { headers: { 'x-assessment-internal-token': token } });
+  if (!response.ok) throw new Error(`Failed to fetch question test cases: HTTP ${response.status}`);
+  return response.json() as Promise<{
+    environment?: string;
+    language?: string;
+    time_limit_sec?: number;
+    memory_limit_mb?: number;
+    test_cases: ExecutionTestCase[];
+  }>;
+}
+
 let redisPublisher: IORedis | null = null;
 let isWorkerRunning = false;
 
@@ -34,7 +52,13 @@ async function publishEvent(channel: string, event: object) {
  */
 export async function executeJob(jobData: CodeExecutionRequest & { jobId?: string }): Promise<ExecutionResult> {
   const jobId = jobData.jobId || uuidv4();
-  const env = resolveEnvironment(jobData.environment || jobData.language);
+  let testCases = jobData.test_cases;
+  let questionConfig: Awaited<ReturnType<typeof loadExecutionCases>> | undefined;
+  if (jobData.assessment_id && jobData.question_id && !testCases) {
+    questionConfig = await loadExecutionCases(jobData.assessment_id, jobData.question_id);
+    testCases = questionConfig.test_cases;
+  }
+  const env = resolveEnvironment(jobData.environment || questionConfig?.environment || jobData.language || questionConfig?.language);
 
   // Initialize or fetch existing doc
   let doc = await JobStore.get(jobId);
@@ -45,6 +69,7 @@ export async function executeJob(jobData: CodeExecutionRequest & { jobId?: strin
       submitter_id: jobData.submitter_id || null,
       assessment_id: jobData.assessment_id || null,
       practical_id: jobData.practical_id || null,
+      question_id: jobData.question_id || null,
       language: env.language,
       environment: env.slug,
       image: env.dockerImage,
@@ -66,19 +91,63 @@ export async function executeJob(jobData: CodeExecutionRequest & { jobId?: strin
     environment: env.slug
   });
 
-  // Execute in Docker sandbox
-  const result = await executeInSandbox({
-    jobId,
-    environment: env,
-    code: jobData.code,
-    stdin: jobData.stdin,
-    files: jobData.files,
-    timeLimitSec: jobData.time_limit_sec || env.defaultTimeLimitSec,
-    memoryMb: jobData.memory_mb || env.defaultMemoryLimitMb,
-    onLog: async (chunk: string) => {
-      await JobStore.appendLog(jobId, chunk);
+  let result: ExecutionResult;
+  let testCaseResults: NonNullable<ExecutionJobDoc['test_case_results']> | undefined;
+  if (testCases?.length) {
+    testCaseResults = [];
+    let totalExecutionTime = 0;
+    let combinedStdout = '';
+    let combinedStderr = '';
+    let overallStatus: ExecutionResult['status'] = 'completed';
+
+    for (const [index, testCase] of testCases.entries()) {
+      const caseJobId = `${jobId}-${testCase.id || index}`;
+      await JobStore.appendLog(jobId, `[Test case ${index + 1}/${testCases.length}] ${testCase.id}\n`);
+      const caseResult = await executeInSandbox({
+        jobId: caseJobId,
+        environment: env,
+        code: jobData.code,
+        stdin: testCase.input ?? '',
+        files: jobData.files,
+        timeLimitSec: testCase.time_limit_sec || questionConfig?.time_limit_sec || jobData.time_limit_sec || env.defaultTimeLimitSec,
+        memoryMb: testCase.memory_limit_mb || questionConfig?.memory_limit_mb || jobData.memory_mb || env.defaultMemoryLimitMb,
+        onLog: async (chunk: string) => JobStore.appendLog(jobId, chunk)
+      });
+      testCaseResults.push({
+        test_case_id: testCase.id,
+        status: caseResult.status,
+        actual_output: caseResult.stdout,
+        stderr: caseResult.stderr,
+        exit_code: caseResult.exitCode,
+        execution_time_ms: caseResult.executionTimeMs
+      });
+      totalExecutionTime += caseResult.executionTimeMs;
+      combinedStdout += `[${testCase.id}]\n${caseResult.stdout}`;
+      combinedStderr += caseResult.stderr;
+      if (caseResult.status !== 'completed') overallStatus = caseResult.status;
     }
-  });
+
+    result = {
+      jobId,
+      status: overallStatus,
+      stdout: combinedStdout,
+      stderr: combinedStderr,
+      exitCode: overallStatus === 'completed' ? 0 : (testCaseResults.find((item) => item.status !== 'completed')?.exit_code ?? 1),
+      executionTimeMs: totalExecutionTime,
+      test_case_results: testCaseResults
+    };
+  } else {
+    result = await executeInSandbox({
+      jobId,
+      environment: env,
+      code: jobData.code,
+      stdin: jobData.stdin,
+      files: jobData.files,
+      timeLimitSec: jobData.time_limit_sec || env.defaultTimeLimitSec,
+      memoryMb: jobData.memory_mb || env.defaultMemoryLimitMb,
+      onLog: async (chunk: string) => JobStore.appendLog(jobId, chunk)
+    });
+  }
 
   // Extract structured SQL or custom results if present in artifacts
   let structuredResults: any[] | undefined;
@@ -104,6 +173,7 @@ export async function executeJob(jobData: CodeExecutionRequest & { jobId?: strin
     stderr: result.stderr,
     error: result.error,
     artifacts: result.artifacts,
+    test_case_results: testCaseResults,
     output: {
       stdout: result.stdout,
       stderr: result.stderr,
@@ -122,12 +192,14 @@ export async function executeJob(jobData: CodeExecutionRequest & { jobId?: strin
       submitter_id: jobData.submitter_id,
       assessment_id: jobData.assessment_id,
       practical_id: jobData.practical_id,
+      question_id: jobData.question_id,
       status: result.status,
       stdout: result.stdout,
       stderr: result.stderr,
       exit_code: result.exitCode,
       execution_time_ms: result.executionTimeMs,
       artifacts: result.artifacts,
+      test_case_results: result.test_case_results,
       results: structuredResults
     }
   };
@@ -147,6 +219,7 @@ export async function processSubmissionEvent(submission: any) {
     submitter_id: submission.submitter_id,
     assessment_id: submission.assessment_id,
     practical_id: submission.practical_id,
+    question_id: submission.question_id || submission.metadata?.question_id,
     language: submission.language || submission.metadata?.language,
     environment: submission.metadata?.environment,
     code: submission.code || submission.metadata?.code,

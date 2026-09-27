@@ -1,13 +1,13 @@
 import express from 'express';
+import { createSubmission } from './controllers/submissionsController';
+import submissionsRouter from './routes';
 
 const app = express();
 app.use(express.json());
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
-app.post('/submit', (req, res) => {
-  // placeholder: accept submission metadata and enqueue execution job
-  res.json({ submissionId: 'placeholder-id' });
-});
+app.use('/submissions', submissionsRouter);
+app.post('/submit', createSubmission);
 
 export default app;

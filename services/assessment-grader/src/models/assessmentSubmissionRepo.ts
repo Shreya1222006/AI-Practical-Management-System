@@ -6,9 +6,10 @@ export async function createAssessmentSubmission(payload: any) {
   const id = payload.id || uuidv4();
   const now = new Date().toISOString();
   const r = await pool.query(
-    `INSERT INTO assessment_submissions (id, submission_id, assessment_id, grader_results, score, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$6) RETURNING *`,
-    [id, payload.submission_id, payload.assessment_id, payload.grader_results || null, payload.score || 0, now]
+    `INSERT INTO assessment_submissions
+      (id, submission_id, assessment_id, student_id, grader_results, score, graded, grading_details, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,TRUE,$5,$7,$7) RETURNING *`,
+    [id, payload.submission_id, payload.assessment_id, payload.student_id, payload.grader_results || [], payload.score ?? 0, now]
   );
   return r.rows[0];
 }

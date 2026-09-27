@@ -38,9 +38,11 @@ export interface EnvironmentInfo {
 export interface CodeExecutionRequest {
   language?: string;
   environment?: string;
+  question_id?: string;
   code?: string;
   stdin?: string;
   files?: Array<{ name: string; content: string }>;
+  test_cases?: Array<{ id: string; input: string; time_limit_sec?: number; memory_limit_mb?: number }>;
   time_limit_sec?: number;
   memory_mb?: number;
   submitter_id?: string;
@@ -65,6 +67,14 @@ export interface ExecutionResult {
   stderr: string;
   exitCode: number | null;
   executionTimeMs: number;
+  test_case_results?: Array<{
+    test_case_id: string;
+    status: JobStatus;
+    actual_output: string;
+    stderr: string;
+    exit_code: number | null;
+    execution_time_ms: number;
+  }>;
   artifacts?: ExecutionArtifact[];
   error?: string;
 }
@@ -75,6 +85,7 @@ export interface ExecutionJobDoc {
   submitter_id?: string | null;
   assessment_id?: string | null;
   practical_id?: string | null;
+  question_id?: string | null;
   language: string;
   environment: string;
   image: string;
@@ -98,4 +109,12 @@ export interface ExecutionJobDoc {
   };
   logs: Array<{ ts: Date; line: string }>;
   artifacts?: ExecutionArtifact[];
+  test_case_results?: Array<{
+    test_case_id: string;
+    status: JobStatus;
+    actual_output: string;
+    stderr: string;
+    exit_code: number | null;
+    execution_time_ms: number;
+  }>;
 }
