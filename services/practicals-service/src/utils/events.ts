@@ -6,6 +6,9 @@ let redis: Redis | null = null;
 if (process.env.REDIS_URL || cfg.redisUrl) {
   const url = process.env.REDIS_URL || cfg.redisUrl;
   redis = new Redis(url);
+  redis.on('error', (error) => {
+    console.error('Redis connection error:', error.message);
+  });
 }
 
 export async function publishEvent(channel: string, payload: any) {

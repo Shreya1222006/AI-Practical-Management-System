@@ -10,11 +10,15 @@ function resolveTargetUrl(serviceEnvKey: string, path: string, fallbackUrl?: str
   return `${base.replace(/\/$/, '')}${path}`;
 }
 
-export function proxyHandler(serviceEnvKey: string, fallbackUrl?: string) {
+export function proxyHandler(serviceEnvKey: string, fallbackUrl?: string, targetPrefix = '') {
   const router = Router({ mergeParams: true });
   router.all('/*', async (req: Request, res: Response) => {
     try {
-      const target = resolveTargetUrl(serviceEnvKey, req.path.replace(/^\//, '/'), fallbackUrl);
+      const target = resolveTargetUrl(
+        serviceEnvKey,
+        `${targetPrefix}${req.path.replace(/^\//, '/')}`,
+        fallbackUrl
+      );
       const cfg: AxiosRequestConfig = {
         url: target,
         method: req.method as any,
@@ -23,8 +27,11 @@ export function proxyHandler(serviceEnvKey: string, fallbackUrl?: string) {
         responseType: 'stream',
         validateStatus: () => true
       };
-      // remove host to avoid host header mismatch
+      // Let Axios recalculate headers for the serialized request body.
       delete (cfg.headers as any).host;
+      delete (cfg.headers as any)['content-length'];
+      delete (cfg.headers as any)['transfer-encoding'];
+      delete (cfg.headers as any).connection;
       const resp = await axios.request(cfg);
       res.status(resp.status);
       // copy headers

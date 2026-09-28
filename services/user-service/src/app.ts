@@ -4,9 +4,13 @@ import helmet from 'helmet';
 import usersRouter from './routes/users';
 
 const app = express();
+<<<<<<< HEAD
 app.use(helmet as any);
 // app.use(helmet());
 
+=======
+app.use(helmet());
+>>>>>>> 9e0e348c5c68ecda10e6216e34cb4ee939084a6b
 app.use(cors());
 app.use(express.json());
 

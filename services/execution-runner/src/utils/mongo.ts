@@ -12,7 +12,7 @@ export async function connectMongo(uri: string) {
     client = new MongoClient(uri, { serverSelectionTimeoutMS: 3000 });
     await client.connect();
     db = client.db();
-    console.log('[MongoDB] Connected successfully');
+    return db.databaseName;
   } catch (err: any) {
     console.warn(`[MongoDB] Connection failed (${err.message}). Using in-memory job store fallback.`);
     db = null;

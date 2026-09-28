@@ -14,6 +14,9 @@ export async function createPractical(req: Request, res: Response) {
     await publishEvent('practical.created', { id: row.id, title: row.title });
     res.status(201).json(row);
   } catch (err) {
+    if (err instanceof repo.PracticalReferenceError) {
+      return res.status(400).json({ error: err.message });
+    }
     console.error(err);
     res.status(500).json({ error: 'internal' });
   }

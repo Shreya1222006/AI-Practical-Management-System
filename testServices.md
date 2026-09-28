@@ -39,6 +39,25 @@ Authorization: Bearer {{token}}
 
 ---
 
+## Database Prerequisites
+
+Auth and user registration require the PostgreSQL `users` table. The services prefer `DATABASE_URL`, then `POSTGRES_DATABASE_URL`, and only use the individual `POSTGRES_*` variables as a fallback. Apply the compatibility migration to the database selected by the active connection URL before starting the services:
+
+```sql
+-- Run migrations/20260919_auth_users_compatibility.sql
+```
+
+Verify the migration in the same database:
+
+```sql
+SELECT current_database(), current_schema();
+SELECT to_regclass('public.users');
+```
+
+The second query must return `public.users`. The registration flow expects `users.email`, `users.password_hash`, `users.name`, `users.role`, and `users.created_at`.
+
+---
+
 ## Step-by-Step Testing Plan
 
 ```
@@ -528,3 +547,8 @@ You can verify that all individual backend services and the gateway are healthy:
 3. **`Docker execution failed`**:
    - Make sure Docker Desktop or the Docker daemon is running locally.
    - Verify that execution images are built (`docker build -t vpl-cpp-runner:1.0 docker/cpp-runner`, etc.).
+
+4. **`relation "users" does not exist`**:
+  - The service connected successfully, but the schema has not been applied to the database selected by `DATABASE_URL`.
+  - Run `migrations/20260919_auth_users_compatibility.sql` in the Supabase SQL Editor or with `psql` against that same database.
+  - Restart `auth-service` and retry registration.

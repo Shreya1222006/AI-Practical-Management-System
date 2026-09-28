@@ -43,8 +43,9 @@ export async function createSubmission(req: Request, res: Response) {
   if (!(await allowRequest(ip))) return res.status(429).json({ error: 'rate limit exceeded' });
 
   // Destructure expected submission payload fields
-  const { submitter_id, assessment_id, practical_id, metadata, attachments } = req.body;
+  const { submitter_id, assessment_id, question_id, practical_id, metadata, attachments } = req.body;
   if (!submitter_id) return res.status(400).json({ error: 'submitter_id required' });
+  if (assessment_id && !question_id) return res.status(400).json({ error: 'question_id required for assessment submissions' });
 
   try {
     // Anti-spam: if this is for an assessment, check the most recent submission
@@ -72,7 +73,7 @@ export async function createSubmission(req: Request, res: Response) {
     }
 
     // Persist the submission record
-    const created = await repo.create({ submitter_id, assessment_id, practical_id, metadata, attachments });
+    const created = await repo.create({ submitter_id, assessment_id, question_id, practical_id, metadata, attachments });
 
     // Publish an event so other services (execution runner, grader) can react.
     // Uses Redis pub/sub when configured, otherwise falls back to a console log

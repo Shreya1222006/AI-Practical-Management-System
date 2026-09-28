@@ -7,10 +7,24 @@ import IORedis from 'ioredis';
 const config = getConfig();
 
 export async function createAssessment(req: Request, res: Response) {
-  const { title, course_id, description, metadata, test_cases, resources } = req.body;
+  const { title, course_id, description, metadata, questions, resources } = req.body;
   if (!title || !course_id) return res.status(400).json({ error: 'title and course_id required' });
+  if (!Array.isArray(questions) || questions.length === 0) {
+    return res.status(400).json({ error: 'at least one question is required' });
+  }
+  for (const question of questions) {
+    if (!question.title || !question.prompt || !Array.isArray(question.test_cases) || question.test_cases.length === 0) {
+      return res.status(400).json({ error: 'each question requires title, prompt, and at least one test case' });
+    }
+    if (question.test_cases.some((testCase: any) => typeof testCase.expected_output !== 'string')) {
+      return res.status(400).json({ error: 'each test case requires expected_output as a string' });
+    }
+    if (question.test_cases.some((testCase: any) => testCase.points !== undefined && Number(testCase.points) <= 0)) {
+      return res.status(400).json({ error: 'test case points must be greater than zero' });
+    }
+  }
   try {
-    const created = await repo.create({ title, course_id, description, metadata, test_cases, resources });
+    const created = await repo.create({ title, course_id, description, metadata, questions, resources } as any);
     // publish event
     if (config.redisUrl) {
       const redis = new IORedis(config.redisUrl);
@@ -21,6 +35,34 @@ export async function createAssessment(req: Request, res: Response) {
     }
     res.status(201).json(created);
   } catch (err: any) {
+    console.error(err);
+    res.status(500).json({ error: 'failed' });
+  }
+}
+
+export async function getExecutionCases(req: Request, res: Response) {
+  if (!process.env.ASSESSMENT_INTERNAL_TOKEN || req.header('x-assessment-internal-token') !== process.env.ASSESSMENT_INTERNAL_TOKEN) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  try {
+    const result = await repo.listExecutionCases(String(req.params.id), String(req.params.questionId));
+    if (!result) return res.status(404).json({ error: 'question not found' });
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed' });
+  }
+}
+
+export async function getGradingCases(req: Request, res: Response) {
+  if (!process.env.ASSESSMENT_INTERNAL_TOKEN || req.header('x-assessment-internal-token') !== process.env.ASSESSMENT_INTERNAL_TOKEN) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  try {
+    const result = await repo.listGradingCases(String(req.params.id), String(req.params.questionId));
+    if (!result) return res.status(404).json({ error: 'question not found' });
+    res.json(result);
+  } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'failed' });
   }

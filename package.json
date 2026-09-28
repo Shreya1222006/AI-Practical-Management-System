@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "install:execution": "npm --prefix services/execution-runner install",
     "build:execution": "npm --prefix services/execution-runner run build",
     "test:execution": "npm --prefix services/execution-runner test"
   },

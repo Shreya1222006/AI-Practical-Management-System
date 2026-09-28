@@ -65,6 +65,7 @@ async function handleExecute(req: Request, res: Response) {
     submission_id: body.submission_id || null,
     submitter_id: body.submitter_id || null,
     assessment_id: body.assessment_id || null,
+    question_id: body.question_id || null,
     practical_id: body.practical_id || null,
     language: env.language,
     environment: env.slug,
@@ -98,6 +99,7 @@ async function handleExecute(req: Request, res: Response) {
         stderr: result.stderr,
         exit_code: result.exitCode,
         execution_time_ms: result.executionTimeMs,
+        test_case_results: result.test_case_results,
         artifacts: result.artifacts,
         error: result.error
       });
@@ -170,6 +172,7 @@ async function handleGetJob(req: Request, res: Response) {
       execution_time_ms: job.execution_time_ms ?? 0,
       results: job.output?.results
     },
+    test_case_results: job.test_case_results || [],
     stdout: job.stdout || '',
     stderr: job.stderr || '',
     exit_code: job.exit_code ?? null,

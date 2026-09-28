@@ -32,7 +32,7 @@ app.get('/health', async (_req, res) => {
 });
 
 // Proxy routes
-app.use('/api/auth', proxyHandler('AUTH_SERVICE_URL', 'http://localhost:4010'));
+app.use('/api/auth', proxyHandler('AUTH_SERVICE_URL', 'http://localhost:4010', '/auth'));
 app.use('/api/users', authMiddleware, proxyHandler('USER_SERVICE_URL', 'http://localhost:4060'));
 app.use('/api/practicals', authMiddleware, proxyHandler('PRACTICALS_SERVICE_URL', 'http://localhost:4070'));
 app.use('/api/assessments', authMiddleware, proxyHandler('ASSESSMENTS_SERVICE_URL', 'http://localhost:4050'));

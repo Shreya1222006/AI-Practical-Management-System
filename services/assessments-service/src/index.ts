@@ -12,16 +12,18 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
 
+app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'assessments-service' }));
 app.use('/assessments', assessmentsRouter);
 app.use('/', assessmentsRouter);
-
-app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'assessments-service' }));
 
 const port = Number(process.env.PORT) || Number(process.env.PORT_ASSESSMENTS_SERVICE) || 4050;
 
 initDb(config)
   .then(() => {
-    app.listen(port, () => console.log(`[Assessments Service] Listening on port ${port}`));
+    app.listen(port, () => {
+      console.log(`[Assessments Service] Listening on port ${port}`);
+      console.log(`[Database] Connected to PostgreSQL database: ${config.postgres.database}`);
+    });
   })
   .catch((err) => {
     console.error('[Assessments Service] Failed to initialize DB:', err);

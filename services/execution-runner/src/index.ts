@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
-dotenv.config();
+import path from 'path';
+dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
 
 import app from './app';
 import { connectMongo } from './utils/mongo';
@@ -15,7 +16,7 @@ async function bootstrap() {
   console.log('====================================================');
 
   // 1. Connect MongoDB
-  await connectMongo(MONGO_URI);
+  const mongoDatabase = await connectMongo(MONGO_URI);
 
   // 2. Start Redis Queue Worker
   await startWorkerQueue(REDIS_URL);
@@ -23,6 +24,7 @@ async function bootstrap() {
   // 3. Start Express REST API Server
   const server = app.listen(PORT, () => {
     console.log(`[HTTP] Execution runner listening on port ${PORT}`);
+    console.log(`[Database] Connected to MongoDB database: ${mongoDatabase || 'default'}`);
     console.log(`[HTTP] Endpoints available:`);
     console.log(`       - POST http://localhost:${PORT}/execute (or /run)`);
     console.log(`       - GET  http://localhost:${PORT}/jobs/:jobId`);
