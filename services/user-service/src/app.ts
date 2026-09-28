@@ -5,6 +5,8 @@ import usersRouter from './routes/users';
 
 const app = express();
 app.use(helmet as any);
+// app.use(helmet());
+
 app.use(cors());
 app.use(express.json());
 
