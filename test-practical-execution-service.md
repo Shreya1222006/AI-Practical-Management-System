@@ -1,8 +1,8 @@
-# Python Machine Learning Practical: Execution Service Test
+# Practical Execution Service Tests: Python ML and PostgreSQL DBMS
 
 ## Goal
 
-Verify that a practical can be created with a supplied dataset and that the execution runner can run Python machine-learning code against that dataset in the `python-dl` sandbox. This checks environment selection, file delivery, Python dependencies, standard output, and basic error handling. It is a service smoke test, not a grading or model-quality benchmark.
+Verify practical creation and code execution in the `python-dl` and `postgres-dbms` sandboxes. The ML case checks dataset delivery and Python dependencies; the DBMS case checks SQL DDL/DML/query execution in an isolated PostgreSQL instance. These are service smoke tests, not grading benchmarks.
 
 ## Prerequisites
 
@@ -13,8 +13,58 @@ Verify that a practical can be created with a supplied dataset and that the exec
   docker build -t vpl-python-dl:1.0 docker/python-dl
   ```
 
+- Build the PostgreSQL DBMS sandbox image if it is not already available:
+
+  ```bash
+  docker build -t vpl-postgres-runner:1.0 docker/postgres-runner
+  ```
+
 - Use `http://localhost:4070` for the practicals service, `http://localhost:4040` for the file service, and `http://localhost:4030` for the execution runner. If testing through the API gateway, use the corresponding `/api/...` routes and authentication headers.
 - Keep the dataset filename exactly `study_scores.csv`.
+
+## 0. Seed Test References
+
+`inst-test-001` and `ml-test-001` are test codes, not built-in records. Run these statements against the same PostgreSQL database configured for `practicals-service` before creating the practical. With the repository's Compose database, start it using `docker compose up -d postgres`, then run the SQL in `psql` connected to database `practical_db`.
+
+```sql
+INSERT INTO institutions (name, code)
+VALUES ('Execution Service Test Institution', 'inst-test-001')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO subjects (institution_id, code, name)
+SELECT id, 'ml-test-001', 'Machine Learning Test'
+FROM institutions
+WHERE code = 'inst-test-001'
+ON CONFLICT (institution_id, code) DO NOTHING;
+
+INSERT INTO execution_environments (
+  name, slug, docker_image, language, subjects,
+  default_time_limit_sec, default_memory_limit_mb
+)
+VALUES (
+  'Python ML Test Environment', 'python-dl', 'vpl-python-dl:1.0', 'python',
+  ARRAY['ML'], 60, 2048
+)
+ON CONFLICT (slug) DO NOTHING;
+
+INSERT INTO subjects (institution_id, code, name)
+SELECT id, 'dbms-test-001', 'Database Systems Test'
+FROM institutions
+WHERE code = 'inst-test-001'
+ON CONFLICT (institution_id, code) DO NOTHING;
+
+INSERT INTO execution_environments (
+  name, slug, docker_image, language, subjects,
+  default_time_limit_sec, default_memory_limit_mb
+)
+VALUES (
+  'PostgreSQL DBMS Test Environment', 'postgres-dbms', 'vpl-postgres-runner:1.0', 'sql',
+  ARRAY['DBMS'], 60, 1024
+)
+ON CONFLICT (slug) DO NOTHING;
+```
+
+If your PostgreSQL schema migrations have not been applied yet, apply them before running the seed statements.
 
 ## 1. Create the Practical
 
@@ -26,10 +76,10 @@ Send `POST http://localhost:4070/practicals` with this body:
   "description": "Load the supplied CSV with pandas, fit a scikit-learn linear regression model to predict score from study_hours, and print the required summary.",
   "subject_id": "ml-test-001",
   "institution_id": "inst-test-001",
+  "environment": "python-dl",
   "language": "python",
   "max_marks": 10,
   "metadata": {
-    "environment": "python-dl",
     "dataset_filename": "study_scores.csv",
     "time_limit_sec": 60,
     "memory_mb": 2048,
@@ -38,7 +88,7 @@ Send `POST http://localhost:4070/practicals` with this body:
 }
 ```
 
-Expect `201 Created` and save the returned `id` as `{{practicalId}}`. The request records the language as Python; select `python-dl` explicitly when calling the execution runner.
+Expect `201 Created` and save the returned `id` as `{{practicalId}}`. The practical service resolves the institution, subject, and environment by UUID or code/slug; each referenced row must exist in its PostgreSQL database.
 
 ## 2. Supply the Dataset to the Practical
 
@@ -102,7 +152,50 @@ training_mae=0.00
 
 `stderr` should be empty. Check that execution time is present and below the 60-second limit. Artifacts may include the supplied CSV depending on the runner's artifact collection behavior; artifact presence is not a pass/fail condition for this test.
 
-## 4. Failure-Path Checks
+## 4. DBMS Practical Test Case
+
+The `postgres-dbms` image starts a temporary PostgreSQL instance inside the sandbox for each run. The SQL below does not connect to the application's PostgreSQL database.
+
+### Create the DBMS Practical
+
+Send `POST http://localhost:4070/practicals`:
+
+```json
+{
+  "title": "DBMS Practical - Create and Query Student Scores",
+  "description": "Create a student score table, insert three records, and list students scoring at least 90 marks in descending order.",
+  "subject_id": "dbms-test-001",
+  "institution_id": "inst-test-001",
+  "environment": "postgres-dbms",
+  "language": "sql",
+  "max_marks": 10,
+  "metadata": {
+    "time_limit_sec": 60,
+    "memory_mb": 1024,
+    "instructions": "Create the score table, insert the supplied records, then select students with marks >= 90 ordered by marks descending."
+  }
+}
+```
+
+Expect `201 Created` and save the returned `id` as `{{dbmsPracticalId}}`. The institution, subject, and execution environment must already exist in the practicals service's PostgreSQL database; run the DBMS seed statements in section 0 first.
+
+### Execute the DBMS Practical
+
+Send `POST http://localhost:4030/execute?sync=true`:
+
+```json
+{
+  "environment": "postgres-dbms",
+  "practical_id": "{{dbmsPracticalId}}",
+  "time_limit_sec": 60,
+  "memory_mb": 1024,
+  "code": "DROP TABLE IF EXISTS practical_dbms_scores;\nCREATE TABLE practical_dbms_scores (student_id INT PRIMARY KEY, student_name VARCHAR(40) NOT NULL, marks INT NOT NULL);\nINSERT INTO practical_dbms_scores (student_id, student_name, marks) VALUES (1, 'Alice', 95), (2, 'Bob', 82), (3, 'Cara', 91);\nSELECT student_name, marks FROM practical_dbms_scores WHERE marks >= 90 ORDER BY marks DESC;"
+}
+```
+
+Expect `200 OK`, `status: "completed"`, `environment: "postgres-dbms"`, and `exit_code: 0`. The `stdout` should report successful table creation and insertion, and the final query should return Alice (95) and Cara (91), in that order; Bob (82) should not appear in the result. `stderr` should be empty, and `execution_time_ms` should be present and below 60,000 ms. The runner may return `execution_result.json` as an artifact; artifact presence is not a pass/fail condition.
+
+## 5. Failure-Path Checks
 
 1. **Missing execution input:** Send `POST /execute?sync=true` with `{"environment":"python-dl"}` and no `code` or `files`. Expect `400 Bad Request` and an error explaining that code or files must be provided.
 2. **Missing dataset in the sandbox:** Repeat the successful ML run without the `files` entry. The script should fail because `study_scores.csv` cannot be opened. Expect a non-zero exit code and a failed execution status, not a successful result with the expected metrics.
@@ -111,8 +204,9 @@ training_mae=0.00
 
 - The practical is created as a Python practical, and its CSV attachment upload succeeds.
 - The Python runner accepts the dataset as a workspace file, imports pandas and scikit-learn, and returns the deterministic regression output above.
+- The DBMS practical is created with the `postgres-dbms` environment, and its SQL runs in the isolated PostgreSQL sandbox with the expected filtered rows.
 - Invalid or incomplete runs are reported as errors rather than successful executions.
 
 ## Scope Note
 
-This validates practical creation, attachment upload, and Python ML execution as separate service steps. It does not test automatic retrieval of practical attachments into a sandbox; the current execution request contract requires the dataset content to be supplied via `files` (or another explicit integration) for each run.
+This validates practical creation, attachment upload, Python ML execution, and PostgreSQL DBMS execution as separate service steps. It does not test automatic retrieval of practical attachments into a sandbox; the current execution request contract requires the dataset content to be supplied via `files` (or another explicit integration) for each run.
