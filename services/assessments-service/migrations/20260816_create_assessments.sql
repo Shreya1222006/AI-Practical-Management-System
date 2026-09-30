@@ -4,7 +4,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS assessments (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   title text NOT NULL,
-  course_id uuid NOT NULL,
+  subject_id uuid NOT NULL,
   description text,
   metadata jsonb,
   test_cases jsonb,
@@ -13,4 +13,4 @@ CREATE TABLE IF NOT EXISTS assessments (
   updated_at timestamptz DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_assessments_course ON assessments (course_id);
+CREATE INDEX IF NOT EXISTS idx_assessments_subject ON assessments (subject_id);

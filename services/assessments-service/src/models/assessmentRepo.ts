@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 export type Assessment = {
   id: string;
   title: string;
-  course_id: string;
+  subject_id: string;
   description?: string;
   metadata?: any;
   test_cases?: any;
@@ -45,9 +45,9 @@ export async function create(a: Partial<Assessment>): Promise<Assessment> {
   try {
     await client.query('BEGIN');
     const result = await client.query(
-      `INSERT INTO assessments (id, title, course_id, description, metadata, resources, created_at, updated_at)
+      `INSERT INTO assessments (id, title, subject_id, description, metadata, resources, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$7) RETURNING *`,
-      [id, a.title, a.course_id, a.description || null, a.metadata || null, a.resources || null, now]
+      [id, a.title, a.subject_id, a.description || null, a.metadata || null, a.resources || null, now]
     );
     const assessment = result.rows[0];
     const createdQuestions: AssessmentQuestion[] = [];
@@ -159,9 +159,9 @@ export async function listGradingCases(assessmentId: string, questionId: string)
   return cases.rows;
 }
 
-export async function findByCourse(course_id: string): Promise<Assessment[]> {
+export async function findBySubject(subject_id: string): Promise<Assessment[]> {
   const pool = getPool();
-  const r = await pool.query('SELECT * FROM assessments WHERE course_id=$1 ORDER BY created_at DESC', [course_id]);
+  const r = await pool.query('SELECT * FROM assessments WHERE subject_id=$1 ORDER BY created_at DESC', [subject_id]);
   return r.rows;
 }
 

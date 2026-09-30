@@ -7,8 +7,8 @@ import IORedis from 'ioredis';
 const config = getConfig();
 
 export async function createAssessment(req: Request, res: Response) {
-  const { title, course_id, description, metadata, questions, resources } = req.body;
-  if (!title || !course_id) return res.status(400).json({ error: 'title and course_id required' });
+  const { title, subject_id, description, metadata, questions, resources } = req.body;
+  if (!title || !subject_id) return res.status(400).json({ error: 'title and subject_id required' });
   if (!Array.isArray(questions) || questions.length === 0) {
     return res.status(400).json({ error: 'at least one question is required' });
   }
@@ -24,7 +24,7 @@ export async function createAssessment(req: Request, res: Response) {
     }
   }
   try {
-    const created = await repo.create({ title, course_id, description, metadata, questions, resources } as any);
+    const created = await repo.create({ title, subject_id, description, metadata, questions, resources } as any);
     // publish event
     if (config.redisUrl) {
       const redis = new IORedis(config.redisUrl);
@@ -69,9 +69,9 @@ export async function getGradingCases(req: Request, res: Response) {
 }
 
 export async function listAssessments(req: Request, res: Response) {
-  const course_id = req.query.course_id as string | undefined;
+  const subject_id = req.query.subject_id as string | undefined;
   try {
-    const list = course_id ? await repo.findByCourse(course_id) : await repo.listAll();
+    const list = subject_id ? await repo.findBySubject(subject_id) : await repo.listAll();
     res.json(list);
   } catch (err) {
     console.error(err);
