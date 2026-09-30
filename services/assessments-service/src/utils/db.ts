@@ -6,14 +6,18 @@ let pool: Pool | null = null;
 export async function initDb(config?: any) {
   const cfg = config || getConfig();
   const postgres = cfg.postgres || cfg;
-  const database = postgres.database || postgres.POSTGRES_DB || process.env.POSTGRES_DB || 'practical_db';
-  pool = new Pool({
-    host: postgres.host || postgres.POSTGRES_HOST || process.env.POSTGRES_HOST || 'localhost',
-    port: Number(postgres.port || postgres.POSTGRES_PORT || process.env.POSTGRES_PORT || 5432),
-    database,
-    user: postgres.user || postgres.POSTGRES_USER || process.env.POSTGRES_USER || 'postgres',
-    password: postgres.password || postgres.POSTGRES_PASSWORD || process.env.POSTGRES_PASSWORD || 'postgres',
-  });
+  const connectionString =
+    postgres.connectionString ||
+    postgres.databaseUrl ||
+    postgres.url ||
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_DATABASE_URL;
+
+  if (!connectionString) {
+    throw new Error('DATABASE_URL or POSTGRES_DATABASE_URL is required');
+  }
+
+  pool = new Pool({ connectionString });
   // simple connectivity check
   await pool.query('SELECT 1');
   return pool;

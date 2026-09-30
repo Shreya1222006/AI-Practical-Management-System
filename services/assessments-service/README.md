@@ -9,7 +9,7 @@ Key endpoints
 - `POST /assessments/:id/presign-resource` - request a presigned upload URL from `file-service`
 
 Environment
-- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
+- `DATABASE_URL` (or `POSTGRES_DATABASE_URL`) - PostgreSQL connection URL
 - `FILE_SERVICE_URL` - base URL for `file-service` (optional)
 - `REDIS_URL` - for publishing events (optional)
 
