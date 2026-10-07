@@ -9,6 +9,7 @@ export type Assessment = {
   metadata?: any;
   test_cases?: any;
   resources?: any[];
+  question_ids?: string[];
   questions?: AssessmentQuestion[];
   created_at?: string;
   updated_at?: string;
@@ -27,6 +28,23 @@ export type AssessmentQuestion = {
   test_cases: AssessmentTestCase[];
 };
 
+export type QuestionInput = {
+  title: string;
+  prompt: string;
+  language?: string;
+  environment?: string;
+  time_limit_sec?: number;
+  memory_limit_mb?: number;
+  test_cases: TestCaseInput[];
+};
+
+export type TestCaseInput = {
+  input?: string;
+  expected_output: string;
+  points?: number;
+  is_hidden?: boolean;
+};
+
 export type AssessmentTestCase = {
   id: string;
   question_id: string;
@@ -37,7 +55,7 @@ export type AssessmentTestCase = {
   is_hidden: boolean;
 };
 
-export async function create(a: Partial<Assessment>): Promise<Assessment> {
+export async function create(a: Partial<Assessment> & { question_ids: string[] }): Promise<Assessment> {
   const pool = getPool();
   const id = a.id || uuidv4();
   const now = new Date().toISOString();
@@ -50,55 +68,75 @@ export async function create(a: Partial<Assessment>): Promise<Assessment> {
       [id, a.title, a.subject_id, a.description || null, a.metadata || null, a.resources || null, now]
     );
     const assessment = result.rows[0];
-    const createdQuestions: AssessmentQuestion[] = [];
+    const availableQuestions = await client.query(
+      'SELECT id FROM questions WHERE id = ANY($1::uuid[])', [a.question_ids]
+    );
+    if (availableQuestions.rowCount !== a.question_ids.length) {
+      throw new Error('QUESTION_IDS_NOT_FOUND');
+    }
 
-    for (const [questionIndex, question] of (a.questions || []).entries()) {
-      const questionId = uuidv4();
-      const createdQuestion: AssessmentQuestion = {
-        id: questionId,
-        assessment_id: id,
-        position: questionIndex,
-        title: question.title,
-        prompt: question.prompt,
-        language: question.language || 'cpp',
-        environment: question.environment || 'cpp-gcc',
-        time_limit_sec: question.time_limit_sec || 5,
-        memory_limit_mb: question.memory_limit_mb || 256,
-        test_cases: []
-      };
+    for (const [questionIndex, questionId] of a.question_ids.entries()) {
       await client.query(
-        `INSERT INTO assessment_questions
-          (id, assessment_id, position, title, prompt, language, environment, time_limit_sec, memory_limit_mb)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [questionId, id, questionIndex, createdQuestion.title, createdQuestion.prompt, createdQuestion.language,
-          createdQuestion.environment, createdQuestion.time_limit_sec, createdQuestion.memory_limit_mb]
+        `INSERT INTO assessment_questions (assessment_id, question_id, position)
+         VALUES ($1,$2,$3)`,
+        [id, questionId, questionIndex]
       );
+    }
 
-      for (const [caseIndex, testCase] of (question.test_cases || []).entries()) {
-        const testCaseId = uuidv4();
-        const createdTestCase: AssessmentTestCase = {
-          id: testCaseId,
-          question_id: questionId,
-          position: caseIndex,
-          input: testCase.input ?? '',
-          expected_output: testCase.expected_output,
-          points: testCase.points ?? 1,
-          is_hidden: testCase.is_hidden ?? true
-        };
-        await client.query(
-          `INSERT INTO question_test_cases
-            (id, question_id, position, input, expected_output, points, is_hidden)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [testCaseId, questionId, caseIndex, createdTestCase.input, createdTestCase.expected_output,
-            createdTestCase.points, createdTestCase.is_hidden]
-        );
-        createdQuestion.test_cases.push(createdTestCase);
-      }
-      createdQuestions.push(createdQuestion);
+    const createdQuestions = [];
+    for (const [position, questionId] of a.question_ids.entries()) {
+      const question = await client.query('SELECT * FROM questions WHERE id=$1', [questionId]);
+      const cases = await client.query(
+        'SELECT * FROM question_test_cases WHERE question_id=$1 ORDER BY position', [questionId]
+      );
+      createdQuestions.push({ ...question.rows[0], assessment_id: id, position, test_cases: cases.rows });
     }
 
     await client.query('COMMIT');
     return { ...assessment, questions: createdQuestions };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function createQuestion(input: QuestionInput) {
+  const pool = getPool();
+  const client = await pool.connect();
+  const questionId = uuidv4();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      `INSERT INTO questions
+        (id, title, prompt, language, environment, time_limit_sec, memory_limit_mb)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [questionId, input.title, input.prompt, input.language || 'cpp', input.environment || 'cpp-gcc',
+        input.time_limit_sec || 5, input.memory_limit_mb || 256]
+    );
+    const testCases: AssessmentTestCase[] = [];
+    for (const [position, testCase] of input.test_cases.entries()) {
+      const createdTestCase: AssessmentTestCase = {
+        id: uuidv4(),
+        question_id: questionId,
+        position,
+        input: testCase.input ?? '',
+        expected_output: testCase.expected_output,
+        points: testCase.points ?? 1,
+        is_hidden: testCase.is_hidden ?? true
+      };
+      await client.query(
+        `INSERT INTO question_test_cases
+          (id, question_id, position, input, expected_output, points, is_hidden)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [createdTestCase.id, questionId, position, createdTestCase.input, createdTestCase.expected_output,
+          createdTestCase.points, createdTestCase.is_hidden]
+      );
+      testCases.push(createdTestCase);
+    }
+    await client.query('COMMIT');
+    return { ...result.rows[0], test_cases: testCases };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -113,7 +151,9 @@ export async function findById(id: string): Promise<Assessment | null> {
   if (!r.rows[0]) return null;
   const assessment = r.rows[0];
   const questions = await pool.query(
-    'SELECT * FROM assessment_questions WHERE assessment_id=$1 ORDER BY position', [id]
+    `SELECT q.*, aq.assessment_id, aq.position
+     FROM assessment_questions aq JOIN questions q ON q.id=aq.question_id
+     WHERE aq.assessment_id=$1 ORDER BY aq.position`, [id]
   );
   const hydratedQuestions = await Promise.all(questions.rows.map(async (question) => {
     const cases = await pool.query(
@@ -128,7 +168,9 @@ export async function findById(id: string): Promise<Assessment | null> {
 async function findQuestion(assessmentId: string, questionId: string) {
   const pool = getPool();
   const result = await pool.query(
-    'SELECT * FROM assessment_questions WHERE id=$1 AND assessment_id=$2',
+    `SELECT q.*, aq.assessment_id, aq.position
+     FROM assessment_questions aq JOIN questions q ON q.id=aq.question_id
+     WHERE q.id=$1 AND aq.assessment_id=$2`,
     [questionId, assessmentId]
   );
   return result.rows[0] || null;

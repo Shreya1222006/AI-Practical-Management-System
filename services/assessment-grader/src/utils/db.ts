@@ -4,15 +4,14 @@ import { getConfig } from '../../../../libs/shared/config';
 let pool: Pool | null = null;
 
 export async function initDb() {
-  const cfg = getConfig();
-  const database = cfg.postgres.database || process.env.POSTGRES_DB || 'practical_db';
-  pool = new Pool({
-    host: cfg.postgres.host || process.env.POSTGRES_HOST || 'localhost',
-    port: Number(cfg.postgres.port || process.env.POSTGRES_PORT || 5432),
-    database,
-    user: cfg.postgres.user || process.env.POSTGRES_USER || 'postgres',
-    password: cfg.postgres.password || process.env.POSTGRES_PASSWORD || 'postgres',
-  });
+  getConfig();
+  const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_DATABASE_URL;
+
+  if (!connectionString) {
+    throw new Error('DATABASE_URL or POSTGRES_DATABASE_URL is required');
+  }
+
+  pool = new Pool({ connectionString });
   await pool.query('SELECT 1');
   return pool;
 }

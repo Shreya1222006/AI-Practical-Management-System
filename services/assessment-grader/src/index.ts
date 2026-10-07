@@ -1,13 +1,12 @@
-import dotenv from 'dotenv';
-dotenv.config();
 import IORedis from 'ioredis';
 import { connectMongo } from './utils/mongo';
 import { initDb } from './utils/db';
 import { handleExecutionCompleted } from './worker';
 import { getConfig } from '../../../libs/shared/config';
 
+const config = getConfig();
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/vpl_logs';
+const MONGO_URI = config.mongoUri;
 
 async function main() {
   console.log('[Assessment Grader] Initializing worker...');
@@ -37,7 +36,6 @@ async function main() {
   });
 
   console.log('[Assessment Grader] Worker started');
-  const config = getConfig();
   console.log(`[Database] Connected to PostgreSQL database: ${config.postgres.database}`);
   console.log(`[Database] Connected to MongoDB database: ${new URL(MONGO_URI).pathname.slice(1) || 'default'}`);
 }

@@ -6,25 +6,47 @@ import IORedis from 'ioredis';
 
 const config = getConfig();
 
-export async function createAssessment(req: Request, res: Response) {
-  const { title, subject_id, description, metadata, questions, resources } = req.body;
-  if (!title || !subject_id) return res.status(400).json({ error: 'title and subject_id required' });
-  if (!Array.isArray(questions) || questions.length === 0) {
-    return res.status(400).json({ error: 'at least one question is required' });
+function getQuestionValidationError(question: any) {
+  if (!question?.title || !question?.prompt || !Array.isArray(question.test_cases) || question.test_cases.length === 0) {
+    return 'question requires title, prompt, and at least one test case';
   }
-  for (const question of questions) {
-    if (!question.title || !question.prompt || !Array.isArray(question.test_cases) || question.test_cases.length === 0) {
-      return res.status(400).json({ error: 'each question requires title, prompt, and at least one test case' });
-    }
-    if (question.test_cases.some((testCase: any) => typeof testCase.expected_output !== 'string')) {
-      return res.status(400).json({ error: 'each test case requires expected_output as a string' });
-    }
-    if (question.test_cases.some((testCase: any) => testCase.points !== undefined && Number(testCase.points) <= 0)) {
-      return res.status(400).json({ error: 'test case points must be greater than zero' });
-    }
+  if (question.test_cases.some((testCase: any) => typeof testCase.expected_output !== 'string')) {
+    return 'each test case requires expected_output as a string';
+  }
+  if (question.test_cases.some((testCase: any) => testCase.points !== undefined &&
+    (!Number.isFinite(Number(testCase.points)) || Number(testCase.points) <= 0))) {
+    return 'test case points must be greater than zero';
+  }
+  return null;
+}
+
+export async function createQuestion(req: Request, res: Response) {
+  const validationError = getQuestionValidationError(req.body);
+  if (validationError) return res.status(400).json({ error: validationError });
+  try {
+    const created = await repo.createQuestion(req.body);
+    res.status(201).json(created);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed' });
+  }
+}
+
+export async function createAssessment(req: Request, res: Response) {
+  const { title, subject_id, description, metadata, question_ids, resources } = req.body;
+  if (!title || !subject_id) return res.status(400).json({ error: 'title and subject_id required' });
+  if (!Array.isArray(question_ids) || question_ids.length === 0) {
+    return res.status(400).json({ error: 'at least one question_id is required' });
+  }
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (question_ids.some((questionId: unknown) => typeof questionId !== 'string' || !uuidPattern.test(questionId))) {
+    return res.status(400).json({ error: 'question_ids must contain valid question UUIDs' });
+  }
+  if (new Set(question_ids).size !== question_ids.length) {
+    return res.status(400).json({ error: 'question_ids must not contain duplicates' });
   }
   try {
-    const created = await repo.create({ title, subject_id, description, metadata, questions, resources } as any);
+    const created = await repo.create({ title, subject_id, description, metadata, question_ids, resources });
     // publish event
     if (config.redisUrl) {
       const redis = new IORedis(config.redisUrl);
@@ -36,6 +58,9 @@ export async function createAssessment(req: Request, res: Response) {
     res.status(201).json(created);
   } catch (err: any) {
     console.error(err);
+    if (err?.message === 'QUESTION_IDS_NOT_FOUND') {
+      return res.status(400).json({ error: 'one or more question_ids do not exist' });
+    }
     res.status(500).json({ error: 'failed' });
   }
 }

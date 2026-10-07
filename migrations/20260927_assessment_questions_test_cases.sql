@@ -2,12 +2,11 @@
 -- Apply after the existing assessments and submissions migrations.
 BEGIN;
 
-ALTER TABLE assessments ADD COLUMN IF NOT EXISTS course_id UUID;
+ALTER TABLE assessments ADD COLUMN IF NOT EXISTS subject_id UUID;
 ALTER TABLE assessments ADD COLUMN IF NOT EXISTS resources JSONB;
 
--- The original root schema requires institution_id and subject_id, while the
--- assessments service currently creates course-based assessments. Keep those
--- legacy columns but allow the course-based API to create rows.
+-- The original root schema requires institution_id and subject_id. Keep those
+-- legacy columns but allow the subject-based API to create rows.
 DO $$
 BEGIN
   IF EXISTS (

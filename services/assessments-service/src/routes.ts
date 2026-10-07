@@ -3,6 +3,7 @@ import * as ctrl from './controllers/assessmentsController';
 
 const router = Router();
 
+router.post('/questions', ctrl.createQuestion);
 router.post('/', ctrl.createAssessment);
 router.get('/', ctrl.listAssessments);
 router.get('/:id/questions/:questionId/execution-cases', ctrl.getExecutionCases);

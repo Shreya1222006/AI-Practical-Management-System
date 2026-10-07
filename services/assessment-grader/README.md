@@ -3,7 +3,7 @@
 Consumes `execution.completed` events, grades runs against assessment `test_cases`, stores `assessment_submissions` in Postgres, uploads artifacts via `file-service` (optional), and publishes `grading.completed`.
 
 Env vars
-- `POSTGRES_*` (for `assessment_submissions` persistence)
+- `DATABASE_URL` (or `POSTGRES_DATABASE_URL`) - PostgreSQL connection URL for `assessment_submissions` persistence
 - `MONGO_URI` (read execution job logs)
 - `REDIS_URL` (subscribe/publish)
 - `ASSESSMENTS_SERVICE_URL` (to fetch assessment test cases)

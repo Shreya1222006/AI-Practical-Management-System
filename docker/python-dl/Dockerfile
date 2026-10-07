@@ -22,7 +22,10 @@ WORKDIR /workspace
 
 # Install Python requirements
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt \
+RUN pip install --no-cache-dir --index-url https://pypi.org/simple --timeout 300 --retries 10 \
+    -r /tmp/requirements.txt \
+    && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple --timeout 300 --retries 10 \
+    'torch>=2.2.0' 'torchvision>=0.17.0' \
     && rm /tmp/requirements.txt
 
 # Create runner user & temp cache directory
