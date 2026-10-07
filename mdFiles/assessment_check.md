@@ -1,16 +1,15 @@
 # Assessment API Check
 
-Use this checklist to verify the assessment APIs through the API gateway.
+Use this checklist to verify the assessment APIs directly against the assessment service.
 
 ## Setup
 
 ```bash
-export BASE_URL="http://localhost:4000/api/assessments"
-export ACCESS_TOKEN="<gateway-access-token>"
+export BASE_URL="http://localhost:4050/assessments"
 export SUBJECT_ID="<existing-subject-uuid>"
 ```
 
-The gateway requires a valid bearer token for assessment routes. Replace the placeholders with values from your environment. The execution and grading case endpoints also require `ASSESSMENT_INTERNAL_TOKEN` to be configured in the assessment service.
+Replace `SUBJECT_ID` with a subject UUID that exists in the database. Start the assessment service before running these requests.
 
 ## Create A Reusable Question
 
@@ -21,7 +20,6 @@ The gateway requires a valid bearer token for assessment routes. Replace the pla
 
 ```bash
 curl -i -X POST "$BASE_URL/questions" \
-  -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Pair Sum",
@@ -47,7 +45,6 @@ curl -i -X POST "$BASE_URL/questions" \
 export QUESTION_ID="<id-returned-by-question-creation>"
 
 curl -i -X POST "$BASE_URL" \
-  -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\
     \"title\": \"DSA Practice 1\",\
@@ -67,8 +64,8 @@ Save the returned assessment `id` as `ASSESSMENT_ID` for the following checks.
 - [ ] Filter by subject and confirm returned rows have the requested `subject_id`.
 
 ```bash
-curl -i "$BASE_URL" -H "Authorization: Bearer $ACCESS_TOKEN"
-curl -i "$BASE_URL?subject_id=$SUBJECT_ID" -H "Authorization: Bearer $ACCESS_TOKEN"
+curl -i "$BASE_URL"
+curl -i "$BASE_URL?subject_id=$SUBJECT_ID"
 ```
 
 ## Get An Assessment
@@ -79,7 +76,7 @@ curl -i "$BASE_URL?subject_id=$SUBJECT_ID" -H "Authorization: Bearer $ACCESS_TOK
 
 ```bash
 export ASSESSMENT_ID="<id-returned-by-assessment-creation>"
-curl -i "$BASE_URL/$ASSESSMENT_ID" -H "Authorization: Bearer $ACCESS_TOKEN"
+curl -i "$BASE_URL/$ASSESSMENT_ID"
 ```
 
 ## Presign An Assessment Resource
@@ -90,32 +87,22 @@ curl -i "$BASE_URL/$ASSESSMENT_ID" -H "Authorization: Bearer $ACCESS_TOKEN"
 
 ```bash
 curl -i -X POST "$BASE_URL/$ASSESSMENT_ID/presign-resource" \
-  -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{ "filename": "starter.cpp", "contentType": "text/plain" }'
 ```
 
-## Internal Execution Cases
+## Execution Cases
 
-- [ ] Call with a valid assessment/question pair and the internal token. Expect `200 OK`, question settings, and testcase `id`, `input`, and `position` fields.
-- [ ] Omit or provide an incorrect internal token. Expect `401 Unauthorized`.
-- [ ] Use a question not associated with the assessment. Expect `404 Not Found`.
+- [ ] Call the direct service endpoint with a valid assessment/question pair. The current service guard returns `401 Unauthorized` for this request.
 
 ```bash
-export INTERNAL_TOKEN="<ASSESSMENT_INTERNAL_TOKEN>"
-curl -i "$BASE_URL/$ASSESSMENT_ID/questions/$QUESTION_ID/execution-cases" \
-  -H "Authorization: Bearer $ACCESS_TOKEN" \
-  -H "x-assessment-internal-token: $INTERNAL_TOKEN"
+curl -i "$BASE_URL/$ASSESSMENT_ID/questions/$QUESTION_ID/execution-cases"
 ```
 
-## Internal Grading Cases
+## Grading Cases
 
-- [ ] Call with a valid assessment/question pair and the internal token. Expect `200 OK` and testcase `id`, `expected_output`, `points`, `is_hidden`, and `position` fields.
-- [ ] Omit or provide an incorrect internal token. Expect `401 Unauthorized`.
-- [ ] Use a question not associated with the assessment. Expect `404 Not Found`.
+- [ ] Call the direct service endpoint with a valid assessment/question pair. The current service guard returns `401 Unauthorized` for this request.
 
 ```bash
-curl -i "$BASE_URL/$ASSESSMENT_ID/questions/$QUESTION_ID/grading-cases" \
-  -H "Authorization: Bearer $ACCESS_TOKEN" \
-  -H "x-assessment-internal-token: $INTERNAL_TOKEN"
+curl -i "$BASE_URL/$ASSESSMENT_ID/questions/$QUESTION_ID/grading-cases"
 ```
