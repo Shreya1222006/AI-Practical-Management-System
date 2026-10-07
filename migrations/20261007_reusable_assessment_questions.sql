@@ -14,8 +14,9 @@ CREATE TABLE assessment_questions (
 );
 
 INSERT INTO assessment_questions (assessment_id, question_id, position)
-SELECT assessment_id, id, position
-FROM questions;
+SELECT q.assessment_id, q.id, q.position
+FROM questions q
+JOIN assessments a ON a.id = q.assessment_id;
 
 ALTER TABLE questions
   DROP COLUMN assessment_id,
