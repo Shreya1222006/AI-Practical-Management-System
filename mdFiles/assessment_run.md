@@ -132,13 +132,62 @@ Expected test outputs:
 - Input `racecar` -> `true`
 - Input `hello` -> `false`
 
+## Attempt And Grade The Assessment
+
+To make a real assessment attempt, submit each answer to the **submission-service**. Submit one request per question; use the assessment ID and the matching question ID below.
+
+Direct service endpoint:
+
+```text
+POST http://localhost:4020/submissions
+Content-Type: application/json
+```
+
+Request body:
+
+```json
+{
+    "submitter_id": "<existing-user-uuid>",
+    "assessment_id": "601d8324-4be0-45cd-bfd3-f937a83c865c",
+    "question_id": "<question-id-from-the-table-below>",
+    "metadata": {
+        "language": "cpp",
+        "environment": "cpp-gcc",
+        "code": "<paste the complete C++ solution for this question>"
+    },
+    "attachments": []
+}
+```
+
+Use the corresponding question ID and paste that question's complete C++ program from above into `metadata.code`:
+
+| Question | `question_id` |
+| --- | --- |
+| Two Sum | `86ed9dae-b404-48bf-ad90-2d294204da89` |
+| Valid Parentheses | `3138392c-d6cc-40d0-a8d8-9875c04fa0c1` |
+| Palindrome Check | `a96e0554-9ffa-4317-803c-10cd16c63cba` |
+
+Expected initial response: `201 Created` with the new submission ID. The submission-service publishes a `submission.created` event. With Redis connected and the services running, the execution-runner executes the code and publishes its result; the assessment-grader then loads grading cases and records the score. Repeat the request for each question you attempt.
+
+Services required for automatic execution and grading:
+
+- Assessment service on `http://localhost:4050`
+- Submission service on `http://localhost:4020`
+- Execution runner on `http://localhost:4030`
+- Assessment grader and Redis
+
+The execution runner must be able to reach the assessment service, and both services must use the same `ASSESSMENT_INTERNAL_TOKEN` to retrieve protected test cases.
+
 ## Run Through The Services
 
-The assessment service owns the assessment, question records, and test cases. The execution runner runs each submitted program and loads that question's test cases from the assessment service.
+For a direct code-run without creating a submission, call the **execution-runner** instead:
 
-1. Ensure the assessment service is running at `http://localhost:4050`.
-2. Ensure the execution runner is running at `http://localhost:4030`.
-3. For each solution, send a synchronous execution request to `POST http://localhost:4030/execute?sync=true` with this body shape. Use the assessment ID above and the matching question ID listed in each section.
+```text
+POST http://localhost:4030/execute?sync=true
+Content-Type: application/json
+```
+
+Request body:
 
 ```json
 {
@@ -151,4 +200,4 @@ The assessment service owns the assessment, question records, and test cases. Th
 }
 ```
 
-The runner returns a `test_case_results` array with each testcase's status and actual output. The runner must be configured to reach the assessment service, and `ASSESSMENT_INTERNAL_TOKEN` must be configured identically in both services so it can retrieve the protected execution cases.
+Use the matching question ID and solution code. The runner returns a `test_case_results` array with each testcase's status and actual output. This direct execution request does not create a submission record or, by itself, trigger assessment grading.
