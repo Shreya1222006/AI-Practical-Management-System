@@ -32,7 +32,7 @@
 ### Design principles (multi-user)
 
 - **PostgreSQL is the source of truth** for identity, permissions, grades, and assignments.
-- **Tenant isolation:** `institution_id` on core tables (supports multiple colleges on one deployment).
+- **Tenant isolation:** `institution_id` on institution-owned tables; users inherit institution scope through `batch_id` (supports multiple colleges on one deployment).
 - **No large blobs in SQL** — code in submissions can be TEXT up to ~512 KB; larger submissions use object storage.
 - **Submission immutability** — new row per attempt; never overwrite (audit trail).
 - **Soft deletes** on teacher-created content (`deleted_at`); hard retention on submissions.
@@ -168,21 +168,17 @@ CREATE TABLE academic_years (
 
 ### 3.3 `batches`
 
-Class divisions within an academic year.
+Institution-scoped class divisions, uniquely identified by institution, domain, year, and division.
 
 ```sql
 CREATE TABLE batches (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   institution_id    UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
-  academic_year_id  UUID NOT NULL REFERENCES academic_years(id) ON DELETE CASCADE,
-  name              VARCHAR(100) NOT NULL,        -- "SE-A", "TE-B"
-  code              VARCHAR(50)  NOT NULL,        -- "SE-A-2025"
-  strength          INT,                          -- optional student count
-  is_active         BOOLEAN NOT NULL DEFAULT TRUE,
+  domain            VARCHAR(20) NOT NULL,         -- CS, IT, AIDS, ENTC, ME, CE, IE
+  year              VARCHAR(20) NOT NULL,
+  div               VARCHAR(20) NOT NULL,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-  UNIQUE (institution_id, code)
+  UNIQUE (institution_id, domain, year, div)
 );
 ```
 
@@ -272,9 +268,10 @@ Central identity table for all concurrent users.
 ```sql
 CREATE TABLE users (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  institution_id  UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+  batch_id        UUID REFERENCES batches(id) ON DELETE SET NULL,
   email           VARCHAR(255) NOT NULL,
   password_hash   VARCHAR(255) NOT NULL,
+  role            VARCHAR(50) NOT NULL DEFAULT 'student',
   first_name      VARCHAR(100) NOT NULL,
   last_name       VARCHAR(100) NOT NULL,
   roll_number     VARCHAR(50),                  -- students
@@ -286,13 +283,16 @@ CREATE TABLE users (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-  UNIQUE (institution_id, email),
-  UNIQUE (institution_id, roll_number)
+  UNIQUE (email),
+  UNIQUE (batch_id, roll_number),
+  CHECK (LOWER(role) <> 'student' OR batch_id IS NOT NULL)
 );
 
-CREATE INDEX idx_users_institution ON users(institution_id);
+CREATE INDEX idx_users_batch ON users(batch_id);
 CREATE INDEX idx_users_email ON users(email);
 ```
+
+Institution ownership for a user is obtained through `users.batch_id -> batches.institution_id`. Student users must belong to a batch; staff accounts such as teachers may have a null `batch_id`.
 
 ---
 
@@ -601,9 +601,9 @@ CREATE INDEX idx_attachments_assessment ON activity_attachments(assessment_id);
 
 ---
 
-### 3.18 `submissions`
+### 3.18 Legacy shared `submissions` table (superseded)
 
-Core accountability table — shared fields for both `run` and `submit` events. Assessment-specific auto-grade details are moved to a separate table `assessment_submissions` (see below) to keep concerns separated and queries simple.
+The following DDL describes the historical shared-table design only. The current submission service does not use this table; see [Submission storage (current)](#submission-storage-current) below.
 
 ```sql
 CREATE TYPE submission_type AS ENUM ('run', 'submit');
@@ -664,9 +664,9 @@ CREATE INDEX idx_submissions_assignment ON submissions(assignment_id);
 CREATE INDEX idx_submissions_institution_date ON submissions(institution_id, submitted_at DESC);
 ```
 
-### 3.18.1 `assessment_submissions`
+### 3.18.1 Legacy `assessment_submissions` result table (superseded)
 
-Assessment-specific auto-grading results and per-test-case details are stored here. This keeps `submissions` lean and avoids nullable/ambiguous columns.
+The following DDL is also historical. The current `assessment_submissions` table stores the assessment-question submission and its grading result together.
 
 ```sql
 CREATE TABLE assessment_submissions (
@@ -706,30 +706,11 @@ CREATE INDEX idx_assess_subm_test_results ON assessment_submissions USING GIN (t
 ]
 ```
 
-### Migration notes (recommended)
+### Submission storage (current)
 
-1. Create `assessment_submissions` table.
-2. Backfill assessment rows from `submissions` into `assessment_submissions`:
-
-```sql
-BEGIN;
-
-INSERT INTO assessment_submissions (submission_id, auto_score, test_results, status, run_metadata, created_at)
-SELECT id, auto_score, COALESCE(test_results, '[]'::jsonb),
-       COALESCE(assessment_status::text, 'partial')::varchar, '{}'::jsonb, submitted_at
-FROM submissions
-WHERE assessment_id IS NOT NULL AND (test_results IS NOT NULL OR auto_score IS NOT NULL OR assessment_status IS NOT NULL);
-
--- After verification, remove deprecated columns from `submissions` (do this manually):
--- ALTER TABLE submissions DROP COLUMN assessment_status;
--- ALTER TABLE submissions DROP COLUMN test_results;
--- ALTER TABLE submissions DROP COLUMN auto_score;
--- ALTER TABLE submissions DROP COLUMN max_score;
-
-COMMIT;
-```
-
-Keep the deprecated columns for a short verification window before dropping them.
+- `assessment_submissions` stores the current submission and grader result for each `(submitter_id, assessment_id, question_id)`. A new attempt for the same key replaces the previous row's submission data and resets its grade until grading completes.
+- `practical_submissions` stores practical submission records separately.
+- `migrations/20261007_split_assessment_practical_submissions.sql` drops the former shared `submissions` table and existing assessment submission rows, then creates the two separate tables. This reset is intentionally destructive and does not migrate old submission history. Apply it only after the assessment, question, practical, and assessment-question tables exist.
 
 
 ---

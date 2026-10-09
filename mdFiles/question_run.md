@@ -74,7 +74,7 @@ Use the authenticated user's UUID as `submitter_id`. For an assessment submissio
 }
 ```
 
-A successful request returns `201 Created` and a submission ID. Submit one request for each question attempted; each request is a separate question-attempt record.
+A successful request returns `201 Created` and the current assessment-submission ID. The assessment keeps one row per submitter, assessment, and question. A later submission for that same combination replaces the source code and resets the grade while preserving the row's latest ID returned by the upsert.
 
 ## Execution And Grading Flow
 
@@ -94,28 +94,31 @@ The execution-runner must be able to reach the assessments-service. Configure th
 
 ## Retrieve A User's Assessment Results
 
-The assessment attempt identifiers are stored on each row in `submissions` as `submitter_id`, `assessment_id`, and `question_id`. Grading details are stored separately in `assessment_submissions`, linked by `submission_id`. The grader table does not currently store `question_id` directly, so join it through `submissions`.
+Assessment submission data and grader results are stored together in `assessment_submissions`, keyed by `submitter_id`, `assessment_id`, and `question_id`. Each row contains the source code/metadata, current status, testcase results, and score. A later submission replaces the row's current source and clears the old grade until the new attempt is graded.
 
-Run this query after grading has completed to retrieve all question attempts and grades for one user and assessment:
+Run this query after grading has completed to retrieve the latest graded result for each question in an assessment:
 
 ```sql
 SELECT
-  s.submitter_id AS user_id,
-  s.assessment_id,
-  s.question_id,
-  s.id AS submission_id,
-  s.created_at AS submitted_at,
+  g.submitter_id AS user_id,
+  g.assessment_id,
+  g.question_id,
+  g.id AS submission_id,
+  g.created_at AS submitted_at,
+  g.status,
+  g.metadata,
   g.score AS question_score,
   g.graded,
   g.grader_results
-FROM public.submissions AS s
-LEFT JOIN public.assessment_submissions AS g
-  ON g.submission_id = s.id
-WHERE s.submitter_id = '<USER_UUID>'
-  AND s.assessment_id = '601d8324-4be0-45cd-bfd3-f937a83c865c'
-ORDER BY s.created_at, s.question_id;
+FROM public.assessment_submissions AS g
+LEFT JOIN public.assessment_questions AS aq
+  ON aq.assessment_id = g.assessment_id
+  AND aq.question_id = g.question_id
+WHERE g.submitter_id = '<USER_UUID>'
+  AND g.assessment_id = '601d8324-4be0-45cd-bfd3-f937a83c865c'
+ORDER BY aq.position NULLS LAST;
 ```
 
-Each result row represents one submitted question attempt. Multiple attempts for the same question are returned separately. `question_score` is the grader's percentage score for that question; use the testcase `points` and `passed` fields in `grader_results` when calculating a points-weighted assessment total. A `NULL` grade means the grader has not recorded that submission yet.
+Each result row represents the current submission and latest grade for one question. `question_score` is the grader's percentage score for that question; use testcase `points` and `passed` fields in `grader_results` when calculating a points-weighted assessment total. A question without a row has not yet been submitted.
 
-There is currently no submission-service API endpoint that returns the joined assessment-grade rows; use the database query above or add a read endpoint for this result view.
+Practical submissions are stored separately in `practical_submissions` and are not included in this assessment query.

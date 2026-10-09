@@ -1,6 +1,6 @@
 # submission-service
 
-Service to receive student submissions, validate, persist metadata and attachments, and publish execution job requests.
+Service to receive student submissions, persist metadata and attachments, and publish execution job requests.
 
 Endpoints
 - `POST /submissions` - create a submission
@@ -8,10 +8,13 @@ Endpoints
 - `GET /submissions/:id` - get a submission
 
 Features
-- Stores `attachments` and `metadata` as JSONB in Postgres (see `entities.md`).
+- Stores assessment-question submissions and grader output in `assessment_submissions`.
+- Stores practical submissions separately in `practical_submissions`.
+- Replaces the assessment row for an existing `submitter_id` + `assessment_id` + `question_id`; practical attempts are inserted as separate rows.
+- Stores `attachments` and `metadata` as JSONB in Postgres.
 - Publishes `submission.created` events to Redis channel `submissions.events` (if `REDIS_URL` configured).
 - Simple rate-limiter: 10 submissions per minute per IP (uses Redis when available; otherwise in-memory).
-- Anti-spam: reject identical submission from same `submitter_id` for same `assessment_id` within 10 seconds.
+- Rejects identical practical submissions from the same submitter and practical within 10 seconds.
 
 Env vars: `POSTGRES_*`, `REDIS_URL`, `FILE_SERVICE_URL`
 

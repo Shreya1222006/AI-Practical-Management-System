@@ -45,23 +45,13 @@ export async function createSubmission(req: Request, res: Response) {
   // Destructure expected submission payload fields
   const { submitter_id, assessment_id, question_id, practical_id, metadata, attachments } = req.body;
   if (!submitter_id) return res.status(400).json({ error: 'submitter_id required' });
+  if (Boolean(assessment_id) === Boolean(practical_id)) {
+    return res.status(400).json({ error: 'exactly one of assessment_id or practical_id is required' });
+  }
   if (assessment_id && !question_id) return res.status(400).json({ error: 'question_id required for assessment submissions' });
+  if (practical_id && question_id) return res.status(400).json({ error: 'question_id is only valid for assessment submissions' });
 
   try {
-    // Anti-spam: if this is for an assessment, check the most recent submission
-    // by the same submitter for the same assessment. If a very recent (10s)
-    // submission exists with identical metadata, reject it as a likely duplicate.
-    if (assessment_id) {
-      const last = await repo.findLatestBySubmitterAssessment(submitter_id, assessment_id);
-      if (last && last.created_at) {
-        const diff = Date.now() - new Date(last.created_at).getTime();
-        if (diff < 10_000 && JSON.stringify(last.metadata) === JSON.stringify(metadata)) {
-          return res.status(429).json({ error: 'too many similar submissions' });
-        }
-      }
-    }
-
-    // Anti-spam: same check for practical submissions (symmetric behavior)
     if (practical_id) {
       const lastP = await repo.findLatestBySubmitterPractical(submitter_id, practical_id);
       if (lastP && lastP.created_at) {
@@ -72,8 +62,9 @@ export async function createSubmission(req: Request, res: Response) {
       }
     }
 
-    // Persist the submission record
-    const created = await repo.create({ submitter_id, assessment_id, question_id, practical_id, metadata, attachments });
+    const created = assessment_id
+      ? await repo.createAssessmentSubmission({ submitter_id, assessment_id, question_id, metadata, attachments })
+      : await repo.createPracticalSubmission({ submitter_id, practical_id, metadata, attachments });
 
     // Publish an event so other services (execution runner, grader) can react.
     // Uses Redis pub/sub when configured, otherwise falls back to a console log

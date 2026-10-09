@@ -33,12 +33,12 @@ app.get('/health', async (_req, res) => {
 
 // Proxy routes
 app.use('/api/auth', proxyHandler('AUTH_SERVICE_URL', 'http://localhost:4010', '/auth'));
-app.use('/api/users', authMiddleware, proxyHandler('USER_SERVICE_URL', 'http://localhost:4060'));
-app.use('/api/practicals', authMiddleware, proxyHandler('PRACTICALS_SERVICE_URL', 'http://localhost:4070'));
-app.use('/api/assessments', authMiddleware, proxyHandler('ASSESSMENTS_SERVICE_URL', 'http://localhost:4050'));
-app.use('/api/submissions', authMiddleware, proxyHandler('SUBMISSION_SERVICE_URL', 'http://localhost:4020'));
+app.use('/api/users', authMiddleware, proxyHandler('USER_SERVICE_URL', 'http://localhost:4060', '/users'));
+app.use('/api/practicals', authMiddleware, proxyHandler('PRACTICALS_SERVICE_URL', 'http://localhost:4070', '/practicals'));
+app.use('/api/assessments', authMiddleware, proxyHandler('ASSESSMENTS_SERVICE_URL', 'http://localhost:4050', '/assessments'));
+app.use('/api/submissions', authMiddleware, proxyHandler('SUBMISSION_SERVICE_URL', 'http://localhost:4020', '/submissions'));
 app.use('/api/execution', authMiddleware, proxyHandler('EXECUTION_RUNNER_URL', 'http://localhost:4030'));
-app.use('/api/files', authMiddleware, proxyHandler('FILE_SERVICE_URL', 'http://localhost:4040'));
+app.use('/api/files', authMiddleware, proxyHandler('FILE_SERVICE_URL', 'http://localhost:4040', '/files'));
 
 const port = Number(process.env.PORT || process.env.PORT_API_GATEWAY || 4000);
 app.listen(port, () => console.log(`[API Gateway] Listening on port ${port}`));

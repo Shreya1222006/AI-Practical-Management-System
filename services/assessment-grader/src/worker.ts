@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { getJobsCollection } from './utils/mongo';
-import { createAssessmentSubmission } from './models/assessmentSubmissionRepo';
+import { updateAssessmentSubmission } from './models/assessmentSubmissionRepo';
 import IORedis from 'ioredis';
 import { getConfig } from '../../../libs/shared/config';
 
@@ -85,10 +85,10 @@ export async function handleExecutionCompleted(data: any, evType: string) {
   );
   const scoring = computeScore(casesResp.data, job.test_case_results || []);
 
-  const record = await createAssessmentSubmission({
+  const record = await updateAssessmentSubmission({
     submission_id,
     assessment_id: assessmentId,
-    student_id: submission.submitter_id,
+    question_id: questionId,
     grader_results: scoring.results,
     score: scoring.score
   });

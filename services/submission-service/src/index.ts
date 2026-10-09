@@ -2,17 +2,15 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import app from './app';
-import { getConfig } from '../../../libs/shared/config';
 import { initDb } from './utils/db';
 
-const config = getConfig();
 const port = Number(process.env.PORT) || Number(process.env.PORT_SUBMISSION_SERVICE) || 4020;
 
-initDb(config)
+initDb()
   .then(() => {
     app.listen(port, () => {
       console.log(`submission-service listening on ${port}`);
-      console.log(`[Database] Connected to PostgreSQL database: ${config.postgres.database}`);
+      console.log('[Database] PostgreSQL connection verified');
     });
   })
   .catch(err => {

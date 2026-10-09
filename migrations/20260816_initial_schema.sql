@@ -43,16 +43,18 @@ CREATE TABLE IF NOT EXISTS role_permissions (
 CREATE TABLE IF NOT EXISTS batches (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
-  name VARCHAR(100) NOT NULL,
-  code VARCHAR(50),
+  domain VARCHAR(20) NOT NULL,
+  year VARCHAR(20) NOT NULL,
+  div VARCHAR(20) NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (institution_id, name)
+  CONSTRAINT batches_institution_domain_year_div_key
+    UNIQUE (institution_id, domain, year, div)
 );
 
 -- users
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  institution_id UUID REFERENCES institutions(id) ON DELETE CASCADE,
+  batch_id UUID REFERENCES batches(id) ON DELETE SET NULL,
   email VARCHAR(255) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
   name VARCHAR(255),
@@ -67,10 +69,12 @@ CREATE TABLE IF NOT EXISTS users (
   last_login_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (institution_id, email),
-  UNIQUE (institution_id, roll_number)
+  CONSTRAINT users_email_key UNIQUE (email),
+  CONSTRAINT users_batch_id_roll_number_key UNIQUE (batch_id, roll_number),
+  CONSTRAINT users_student_requires_batch_check
+    CHECK (LOWER(role) <> 'student' OR batch_id IS NOT NULL)
 );
-CREATE INDEX IF NOT EXISTS idx_users_institution ON users(institution_id);
+CREATE INDEX IF NOT EXISTS idx_users_batch ON users(batch_id);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
 -- user_roles

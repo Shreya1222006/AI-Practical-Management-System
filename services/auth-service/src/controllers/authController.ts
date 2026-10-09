@@ -11,21 +11,23 @@ const refreshSecret = cfg.jwt.refreshSecret;
 const accessExpiry = cfg.jwt.accessExpiry;
 
 export async function register(req: Request, res: Response) {
-  const { email, password, name } = req.body;
-  if (!email || !password) return res.status(400).json({ error: 'email and password required' });
+  const { email, password, name, batch_id } = req.body;
+  if (!email || !password || !batch_id) {
+    return res.status(400).json({ error: 'email, password, and batch_id required' });
+  }
 
   const existing = await findUserByEmail(email);
   if (existing) return res.status(409).json({ error: 'user exists' });
 
   const hash = await bcrypt.hash(password, Number(process.env.BCRYPT_SALT_ROUNDS || 10));
-  const user = await createUser({ email, password_hash: hash, name });
+  const user = await createUser({ email, password_hash: hash, name, batch_id });
 
   const token = jwt.sign(
-    { sub: user.id, email: user.email, role: user.role } as unknown as string | Buffer | jwt.JwtPayload,
+    { sub: user.id, email: user.email, role: user.role, batch_id: user.batch_id } as unknown as string | Buffer | jwt.JwtPayload,
     accessSecret as unknown as jwt.Secret,
     { expiresIn: accessExpiry } as unknown as jwt.SignOptions
   ) as string;
-  return res.status(201).json({ user: { id: user.id, email: user.email, name: user.name }, token });
+  return res.status(201).json({ user: { id: user.id, email: user.email, name: user.name, batch_id: user.batch_id }, token });
 }
 
 export async function login(req: Request, res: Response) {
@@ -39,11 +41,11 @@ export async function login(req: Request, res: Response) {
   if (!ok) return res.status(401).json({ error: 'invalid credentials' });
 
   const token = jwt.sign(
-    { sub: user.id, email: user.email, role: user.role } as unknown as string | Buffer | jwt.JwtPayload,
+    { sub: user.id, email: user.email, role: user.role, batch_id: user.batch_id } as unknown as string | Buffer | jwt.JwtPayload,
     accessSecret as unknown as jwt.Secret,
     { expiresIn: accessExpiry } as unknown as jwt.SignOptions
   ) as string;
-  return res.json({ token, user: { id: user.id, email: user.email, name: user.name } });
+  return res.json({ token, user: { id: user.id, email: user.email, name: user.name, batch_id: user.batch_id } });
 }
 
 export async function me(req: Request, res: Response) {
@@ -51,5 +53,5 @@ export async function me(req: Request, res: Response) {
   if (!userId) return res.status(401).end();
   const user = await findUserById(userId);
   if (!user) return res.status(404).end();
-  res.json({ id: user.id, email: user.email, name: user.name, role: user.role });
+  res.json({ id: user.id, email: user.email, name: user.name, role: user.role, batch_id: user.batch_id });
 }

@@ -1,15 +1,21 @@
 import { getPool } from '../utils/db';
-import { v4 as uuidv4 } from 'uuid';
 
-export async function createAssessmentSubmission(payload: any) {
+export async function updateAssessmentSubmission(payload: any) {
   const pool = getPool();
-  const id = payload.id || uuidv4();
   const now = new Date().toISOString();
   const r = await pool.query(
-    `INSERT INTO assessment_submissions
-      (id, submission_id, assessment_id, student_id, grader_results, score, graded, grading_details, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,TRUE,$5,$7,$7) RETURNING *`,
-    [id, payload.submission_id, payload.assessment_id, payload.student_id, payload.grader_results || [], payload.score ?? 0, now]
+    `UPDATE assessment_submissions
+     SET grader_results = $2::jsonb,
+         score = $3,
+         graded = TRUE,
+         grading_details = $2::jsonb,
+         status = 'graded',
+         updated_at = $4
+     WHERE id = $1 AND assessment_id = $5 AND question_id = $6
+     RETURNING *`,
+    [payload.submission_id, JSON.stringify(payload.grader_results || []), payload.score ?? 0,
+      now, payload.assessment_id, payload.question_id]
   );
+  if (!r.rows[0]) throw new Error('Assessment submission was replaced before grading completed');
   return r.rows[0];
 }

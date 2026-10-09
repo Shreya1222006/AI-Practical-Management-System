@@ -7,7 +7,7 @@ This guide describes how the four services collaborate to create a multi-questio
 | Service | Default port / mode | Responsibility in this workflow |
 |---|---:|---|
 | `assessments-service` | `4050` | Creates assessments, questions, and test cases; provides public assessment reads and protected internal testcase APIs. |
-| `submission-service` | `4020` | Stores one student's code submission for one assessment question, then publishes `submission.created`. |
+| `submission-service` | `4020` | Stores assessment submissions in `assessment_submissions`, practical submissions in `practical_submissions`, then publishes `submission.created`. |
 | `execution-runner` | `4030` | Loads the question's inputs, runs the submitted source once per testcase in isolated Docker containers, and stores logs/results in MongoDB. |
 | `assessment-grader` | Background worker | Reads actual testcase results from MongoDB, loads expected outputs, calculates a score, persists it in PostgreSQL, and publishes `grading.completed`. |
 
@@ -28,11 +28,14 @@ sequenceDiagram
     participant Mongo as MongoDB
     participant Grader as assessment-grader
 
-    Author->>Assess: POST /assessments with questions and cases
-    Assess->>PG: Transactionally insert assessment, questions, cases
-    Assess-->>Author: Assessment, question IDs, testcase IDs
+    Author->>Assess: POST /questions with question and cases
+    Assess->>PG: Insert reusable question and cases
+    Assess-->>Author: Question ID and testcase IDs
+    Author->>Assess: POST /assessments with question_ids
+    Assess->>PG: Insert assessment and question links
+    Assess-->>Author: Assessment with linked questions
     Student->>Submit: POST /submissions with assessment_id and question_id
-    Submit->>PG: Insert submission and source metadata
+    Submit->>PG: Upsert assessment_submissions by submitter + assessment + question
     Submit->>Redis: submission.created on submissions.events
     Redis-->>Runner: Submission event
     Runner->>Assess: Internal request for testcase IDs and inputs
@@ -50,79 +53,55 @@ sequenceDiagram
     Grader->>Assess: Internal request for expected outputs and points
     Assess-->>Grader: Grading cases
     Grader->>Grader: Exact output comparison and weighted score
-    Grader->>PG: Insert assessment_submissions result
+    Grader->>PG: Update assessment_submissions result fields
     Grader->>Redis: grading.completed on grading.events
 ```
 
-One submission targets one question. To answer multiple questions in an assessment, submit each question separately. Each question is graded from the testcases belonging to that question.
+One request targets one question. Submit a separate request for each question. A resubmission for the same submitter, assessment, and question replaces that question's current submission row and resets its grade while execution and grading run again.
 
 ## Assessment Data Format
 
-Create an assessment with `POST http://localhost:4050/assessments`:
+Create each reusable question and its cases first with `POST http://localhost:4050/questions`:
 
 ```json
 {
-  "title": "Data Structures Assessment 1",
-  "course_id": "<course-uuid>",
-  "description": "Solve each question using C++.",
-  "metadata": {
-    "duration_minutes": 60
-  },
-  "resources": [],
-  "questions": [
-    {
-      "title": "Sum two integers",
-      "prompt": "Read two integers from standard input and print their sum.",
-      "language": "cpp",
-      "environment": "cpp-gcc",
-      "time_limit_sec": 5,
-      "memory_limit_mb": 256,
-      "test_cases": [
-        {
-          "input": "20 22\n",
-          "expected_output": "42\n",
-          "points": 5,
-          "is_hidden": false
-        },
-        {
-          "input": "-4 9\n",
-          "expected_output": "5\n",
-          "points": 10,
-          "is_hidden": true
-        }
-      ]
-    },
-    {
-      "title": "Second question",
-      "prompt": "Question statement goes here.",
-      "language": "cpp",
-      "environment": "cpp-gcc",
-      "time_limit_sec": 5,
-      "memory_limit_mb": 256,
-      "test_cases": [
-        {
-          "input": "sample input\n",
-          "expected_output": "sample output\n",
-          "points": 1,
-          "is_hidden": true
-        }
-      ]
-    }
+  "title": "Sum two integers",
+  "prompt": "Read two integers from standard input and print their sum.",
+  "language": "cpp",
+  "environment": "cpp-gcc",
+  "time_limit_sec": 5,
+  "memory_limit_mb": 256,
+  "test_cases": [
+    { "input": "20 22\n", "expected_output": "42\n", "points": 5, "is_hidden": false },
+    { "input": "-4 9\n", "expected_output": "5\n", "points": 10, "is_hidden": true }
   ]
 }
 ```
 
-Required fields are `title`, `course_id`, at least one question, and at least one testcase per question. Each question requires `title`, `prompt`, and a `test_cases` array. Each testcase requires a string `expected_output`; `input` defaults to an empty string. Defaults are `cpp`, `cpp-gcc`, 5 seconds, 256 MB, 1 point, and hidden.
+Then create the assessment with the returned question IDs using `POST http://localhost:4050/assessments`:
+
+```json
+{
+  "title": "Data Structures Assessment 1",
+  "subject_id": "<subject-uuid>",
+  "description": "Solve each question using C++.",
+  "metadata": { "duration_minutes": 60 },
+  "resources": [],
+  "question_ids": ["<question-uuid-1>", "<question-uuid-2>"]
+}
+```
+
+Each question requires `title`, `prompt`, and a nonempty `test_cases` array. Each testcase requires string `expected_output`; `input` defaults to an empty string. The assessment requires `title`, `subject_id`, and a nonempty array of existing `question_ids`.
 
 Assessment, question, and testcase IDs are generated by the service and returned in the `201` response. Save each returned question `id`; it is the `question_id` used when submitting code. Questions and cases have `position` values assigned from their order in the request.
 
 ### Stored Relational Shape
 
-- `assessments`: assessment identity, title, course, description, metadata, resources, and timestamps.
-- `assessment_questions`: `id`, `assessment_id`, `position`, `title`, `prompt`, `language`, `environment`, `time_limit_sec`, `memory_limit_mb`, and creation time.
+- `questions`: reusable question identity, title, prompt, language, environment, execution limits, and creation time.
+- `assessment_questions`: assessment-to-question links with position; a question can be linked to multiple assessments.
 - `question_test_cases`: `id`, `question_id`, `position`, `input`, `expected_output`, `points`, `is_hidden`, and creation time.
 
-Questions are deleted with their assessment, and cases are deleted with their question. Creation inserts the assessment, questions, and cases in one PostgreSQL transaction.
+Deleting an assessment removes its links but leaves reusable questions and their cases. Deleting a question removes its test cases and assessment links.
 
 ## Submission Format
 
@@ -140,7 +119,7 @@ Submit one question's solution to `POST http://localhost:4020/submissions`:
 }
 ```
 
-`POST /submit` is retained as a legacy alias for submission creation. Assessment submissions require both `assessment_id` and `question_id`. The submission is stored in PostgreSQL; source code and language are currently carried in `metadata`. The service publishes the inserted submission as `submission.created` on Redis channel `submissions.events`.
+`POST /submit` is retained as a legacy alias for submission creation. Assessment submissions require both `assessment_id` and `question_id`. The current row is stored in `assessment_submissions`; source code and language are carried in `metadata`. A resubmission replaces the row for that submitter/assessment/question key. Practical submissions are stored separately in `practical_submissions`. The service publishes the saved record as `submission.created` on Redis channel `submissions.events`.
 
 The relevant submission record fields are:
 
@@ -244,7 +223,7 @@ Spaces and trailing newlines are significant. Missing actual results fail. The s
 score = earned_points / total_points * 100
 ```
 
-The grader inserts a row in PostgreSQL `assessment_submissions`. Its `grader_results` JSON and `grading_details` contain per-testcase values, including expected/actual output, pass state, execution status, exit code, runtime, stderr, and points. It also stores the percentage score and marks the row graded.
+The submission service stores the assessment-question submission in PostgreSQL `assessment_submissions`. The grader updates that same row after execution. Its `grader_results` JSON and `grading_details` contain per-testcase values, including expected/actual output, pass state, execution status, exit code, runtime, stderr, and points. It also stores the percentage score and marks the row graded. A resubmission for the same user, assessment, and question replaces the current row's source and clears its previous grade while the new code is evaluated.
 
 The `grading.completed` Redis event has this shape:
 
@@ -294,7 +273,7 @@ Required runtime dependencies:
 - Docker and the configured sandbox image, for example `vpl-cpp-runner:1.0`.
 - The four services above, configured to reach each other using their service URLs.
 
-Apply the normal root schema and submissions migrations first, then apply [`migrations/20260927_assessment_questions_test_cases.sql`](migrations/20260927_assessment_questions_test_cases.sql) to the same PostgreSQL database. Back up and review production data before applying schema changes.
+Apply the base schema, [`migrations/20260927_assessment_questions_test_cases.sql`](migrations/20260927_assessment_questions_test_cases.sql), and [`migrations/20261007_reusable_assessment_questions.sql`](migrations/20261007_reusable_assessment_questions.sql) first. Then apply [`migrations/20261007_split_assessment_practical_submissions.sql`](migrations/20261007_split_assessment_practical_submissions.sql). The final migration intentionally drops old shared submissions and old grader-result rows; back up first if the old history must be retained.
 
 ## Judge0 Similarities and Current Limits
 

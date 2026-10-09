@@ -26,7 +26,7 @@ export async function rateLimiter(req: Request, res: Response, next: NextFunctio
   if (now > entry.reset) {
     entry.count = 1; entry.reset = now + 60_000;
   } else { entry.count += 1; }
-  map.set(ip, entry);1``
+  map.set(ip, entry);
   if (entry.count > 100) return res.status(429).json({ error: 'rate limit' });
   return next();
 }

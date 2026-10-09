@@ -314,7 +314,7 @@ sequenceDiagram
     Student->>GW: POST /api/submissions { practical_id, submitter_id, metadata: { code, language } }
     GW->>Sub: Forward to POST /submissions
     Sub->>Sub: Rate Limit check (max 10 req/min) & Anti-Spam check
-    Sub->>PG: INSERT INTO submissions (student_id, practical_id, code, status: "submitted")
+    Sub->>PG: INSERT INTO practical_submissions (submitter_id, practical_id, metadata, status)
     PG-->>Sub: Return created submission (id: submissionId)
     Sub->>Redis: Publish to 'submissions.events' (submission.created)
     Sub-->>GW: Return 201 Created { submissionId }
@@ -330,9 +330,9 @@ sequenceDiagram
     Runner->>Redis: Publish 'execution.events' (execution.completed)
 
     Note over Teacher,PG: Teacher Reviews Submission
-    Teacher->>GW: GET /api/submissions?practicalId=<id>
-    GW->>Sub: GET /submissions?practicalId=<id>
-    Sub->>PG: SELECT * FROM submissions WHERE practical_id = <id>
+    Teacher->>GW: GET /api/submissions?submitter_id=<userId>
+    GW->>Sub: GET /submissions?submitter_id=<userId>
+    Sub->>PG: SELECT from practical_submissions for submitter_id
     PG-->>Sub: Return list of student submissions + code
     Sub-->>GW: Return list of student submissions + code
     GW-->>Teacher: 200 OK (Teacher reviews code and assigns marks)
@@ -358,10 +358,10 @@ sequenceDiagram
     participant Assess as Assessments Service (:4050)
     participant PG as PostgreSQL
 
-    Student->>GW: POST /api/submissions { assessment_id, submitter_id, metadata: { code, language: "cpp" } }
+    Student->>GW: POST /api/submissions { assessment_id, question_id, submitter_id, metadata: { code, language: "cpp" } }
     GW->>Sub: Forward to POST /submissions
-    Sub->>PG: INSERT INTO submissions (assessment_id, submitter_id, code)
-    PG-->>Sub: Created submission (id: subId)
+    Sub->>PG: UPSERT assessment_submissions by submitter_id + assessment_id + question_id
+    PG-->>Sub: Return current submission row (id: subId, status: pending)
     Sub->>Redis: Publish 'submissions.events' (type: "submission.created", data: { id: subId, assessment_id })
     Sub-->>GW: Return 201 Created { id: subId }
     GW-->>Student: 201 Created { id: subId }
@@ -381,8 +381,8 @@ sequenceDiagram
     Grader->>Assess: GET /assessments/:assessmentId (Fetch test_cases with expected outputs & points)
     Assess-->>Grader: Return test_cases array
     Grader->>Grader: computeScoreFromLogs(test_cases, executionLogs)
-    Grader->>PG: INSERT INTO assessment_submissions (submission_id, assessment_id, student_id, score, grading_details)
-    PG-->>Grader: Saved grading record
+    Grader->>PG: UPDATE assessment_submissions with testcase results and score
+    PG-->>Grader: Updated current question submission row
     Grader->>Redis: Publish 'grading.events' { type: "grading.completed", data: { score, results } }
 ```
 

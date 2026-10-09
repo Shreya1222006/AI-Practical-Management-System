@@ -2,23 +2,10 @@
 
 Basic authentication service: register/login and JWT issuance.
 
-Database setup (Postgres):
-
-Run the following to create the `users` table:
-
-```sql
-CREATE TABLE IF NOT EXISTS users (
-  id UUID PRIMARY KEY,
-  email TEXT UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL,
-  name TEXT,
-  role TEXT NOT NULL DEFAULT 'student',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
-```
+Database setup (Postgres): apply the root schema and batch/user migration. Users derive their institution through `batch_id -> batches.institution_id`. Student accounts require a batch; staff accounts may omit one.
 
 Endpoints:
-- `POST /auth/register` { email, password, name }
+- `POST /auth/register` { email, password, name, batch_id }
 - `POST /auth/login` { email, password }
 - `GET /auth/me` (Authorization: Bearer <token>)
 
